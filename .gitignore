@@ -1,0 +1,19 @@
+# Dependências de pacotes (geradas automaticamente, super pesadas)
+node_modules/
+.pnpm-store/
+dist/
+build/
+
+# Variáveis de ambiente (AQUI ficam as chaves secretas do Supabase, NÃO podem ir pro GitHub!)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Configurações locais do Supabase CLI
+.supabase/
