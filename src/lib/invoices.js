@@ -1,0 +1,168 @@
+import { todayIso, categoryMeta } from './constants'
+
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+
+function ymd(year, month, day) {
+  return `${year}-${pad2(month)}-${pad2(day)}`
+}
+
+function daysInMonth(year, month) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate()
+}
+
+function clampDay(year, month, day) {
+  return Math.min(Math.max(1, day), daysInMonth(year, month))
+}
+
+// Intervalo de compras que cai numa fatura: do dia seguinte ao fechamento
+// anterior até o dia de fechamento do `periodKey` (mês em que a fatura fecha).
+export function invoicePeriod(card, periodKey) {
+  const [year, month] = periodKey.split('-').map(Number)
+  const closingDay = clampDay(year, month, Number(card.closingDay) || 1)
+  const end = ymd(year, month, closingDay)
+
+  const prevMonthDate = new Date(Date.UTC(year, month - 2, 1))
+  const prevYear = prevMonthDate.getUTCFullYear()
+  const prevMonth = prevMonthDate.getUTCMonth() + 1
+  const prevClosingDay = clampDay(prevYear, prevMonth, Number(card.closingDay) || 1)
+  const startDate = new Date(Date.UTC(prevYear, prevMonth - 1, prevClosingDay + 1))
+  const start = startDate.toISOString().slice(0, 10)
+
+  return { periodKey, start, end }
+}
+
+// Em qual fatura (periodKey) uma data de compra cai: se for até o dia de
+// fechamento, entra na fatura desse mês; senão, já é da fatura do mês
+// seguinte.
+export function periodKeyForDate(dateIso, card) {
+  const [y, m, d] = dateIso.split('-').map(Number)
+  const closingDay = clampDay(y, m, Number(card.closingDay) || 1)
+  if (d <= closingDay) return `${y}-${pad2(m)}`
+  const next = new Date(Date.UTC(y, m, 1))
+  return `${next.getUTCFullYear()}-${pad2(next.getUTCMonth() + 1)}`
+}
+
+export function currentPeriodKey(card, today = todayIso()) {
+  return periodKeyForDate(today, card)
+}
+
+// Vencimento da fatura: convenção comum no Brasil — se o dia de vencimento é
+// depois do dia de fechamento, vence no mesmo mês do fechamento; senão, só
+// vence no mês seguinte.
+export function invoiceDueDate(card, periodKey) {
+  const [year, month] = periodKey.split('-').map(Number)
+  const closingDay = Number(card.closingDay) || 1
+  const dueDay = Number(card.dueDay) || 1
+  const sameMonth = dueDay > closingDay
+
+  const dueDate = new Date(Date.UTC(year, month - 1 + (sameMonth ? 0 : 1), 1))
+  const dueYear = dueDate.getUTCFullYear()
+  const dueMonth = dueDate.getUTCMonth() + 1
+  return ymd(dueYear, dueMonth, clampDay(dueYear, dueMonth, dueDay))
+}
+
+// Soma `count` meses a uma data YYYY-MM-DD, preservando o dia (clampado ao
+// último dia válido do mês de destino) — usado pra projetar a data de cada
+// parcela futura a partir da parcela importada da fatura.
+export function addMonthsToDate(dateIso, count) {
+  const [year, month, day] = dateIso.split('-').map(Number)
+  const date = new Date(Date.UTC(year, month - 1 + count, 1))
+  const clampedDay = clampDay(date.getUTCFullYear(), date.getUTCMonth() + 1, day)
+  return ymd(date.getUTCFullYear(), date.getUTCMonth() + 1, clampedDay)
+}
+
+// A partir de uma parcela reconhecida numa fatura importada (ex: "3/10"),
+// projeta as parcelas seguintes (4/10 até 10/10) que ainda não apareceram em
+// nenhuma fatura enviada — assim a compra parcelada já aparece inteira, até
+// a última parcela, sem precisar subir fatura todo mês só pra ela surgir.
+// Cada uma nasce marcada `projected: true`; quando a fatura real daquele mês
+// é importada depois, ela substitui a projeção (ver App.jsx).
+export function projectFutureInstallments(item) {
+  const { installment } = item ?? {}
+  if (!installment || installment.index >= installment.total) return []
+
+  const projected = []
+  for (let i = installment.index + 1; i <= installment.total; i++) {
+    projected.push({
+      ...item,
+      date: addMonthsToDate(item.date, i - installment.index),
+      installment: { index: i, total: installment.total },
+      projected: true,
+    })
+  }
+  return projected
+}
+
+export function cardTransactionsInPeriod(transactions, cardId, period) {
+  return (transactions ?? []).filter(
+    (t) => t.accountId === cardId && t.date >= period.start && t.date <= period.end,
+  )
+}
+
+function signedInvoiceAmount(tx) {
+  const amount = Number(tx.amount) || 0
+  return tx.type === 'entrada' ? -amount : amount
+}
+
+// Total da fatura = soma das compras (saída) menos estornos/créditos
+// (entrada) lançados no cartão dentro do período.
+export function invoiceTotal(transactions, cardId, period) {
+  return cardTransactionsInPeriod(transactions, cardId, period).reduce(
+    (sum, t) => sum + signedInvoiceAmount(t),
+    0,
+  )
+}
+
+// Limite ainda disponível no cartão: limite total menos o que já foi gasto
+// na fatura em aberto e menos as faturas fechadas que ainda não foram pagas
+// (o limite só volta de verdade quando a fatura é quitada, não quando fecha).
+export function cardAvailableLimit(card, transactions, bills = [], billPayments = []) {
+  const openPeriod = invoicePeriod(card, currentPeriodKey(card))
+  const openTotal = invoiceTotal(transactions, card.id, openPeriod)
+  const unpaidPastInvoices = bills
+    .filter((b) => b.cardId === card.id)
+    .filter((b) => !billPayments.some((p) => p.billId === b.id))
+    .reduce((sum, b) => sum + (Number(b.amount) || 0), 0)
+
+  return (Number(card.amount) || 0) - openTotal - unpaidPastInvoices
+}
+
+export function isPeriodClosed(period, today = todayIso()) {
+  return today > period.end
+}
+
+// Faturas navegáveis: `pastCount` fechadas antes da atual, a atual, e
+// `futureCount` adiante (pra compras já lançadas com data futura).
+export function listInvoicePeriods(card, { pastCount = 6, futureCount = 1 } = {}) {
+  const current = currentPeriodKey(card)
+  const [y, m] = current.split('-').map(Number)
+  const periods = []
+  for (let offset = -pastCount; offset <= futureCount; offset++) {
+    const d = new Date(Date.UTC(y, m - 1 + offset, 1))
+    const periodKey = `${d.getUTCFullYear()}-${pad2(d.getUTCMonth() + 1)}`
+    periods.push(invoicePeriod(card, periodKey))
+  }
+  return periods
+}
+
+// Gastos por categoria dentro de uma fatura específica — mesma ideia de
+// `spendingByCategory` em lib/insights.js, só que escopado a cartão+período
+// em vez de mês calendário.
+export function cardSpendingByCategory(transactions, cardId, period, categories) {
+  const periodTx = cardTransactionsInPeriod(transactions, cardId, period).filter(
+    (t) => t.type === 'saida',
+  )
+  const totals = new Map()
+
+  for (const tx of periodTx) {
+    if (!tx.category) continue
+    totals.set(tx.category, (totals.get(tx.category) || 0) + (Number(tx.amount) || 0))
+  }
+
+  return [...totals.entries()]
+    .map(([categoryId, total]) => ({ category: categoryMeta(categories, categoryId), total }))
+    .filter((entry) => entry.category)
+    .sort((a, b) => b.total - a.total)
+}

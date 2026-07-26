@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FinPilot — Preview duplo</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --cream: #fff8f4;
+        --sage: #f9876f;
+        --sage-dark: #c96851;
+        --peach: #e38c92;
+        --coffee: #1e1e1e;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--cream);
+        font-family: 'Inter', sans-serif;
+        color: var(--coffee);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 32px 16px 64px;
+        gap: 8px;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 24px;
+      }
+
+      header h1 {
+        font-family: 'Familjen Grotesk', sans-serif;
+        font-weight: 700;
+        font-size: 28px;
+        margin: 0 0 4px;
+        color: var(--coffee);
+      }
+
+      header p {
+        margin: 0;
+        color: rgba(30, 30, 30, 0.65);
+        font-size: 14px;
+      }
+
+      .app-url {
+        font-family: 'Inter', monospace;
+        background: rgba(227, 140, 146, 0.15);
+        border-radius: 8px;
+        padding: 2px 8px;
+        color: var(--sage-dark);
+      }
+
+      .stage {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 40px;
+        justify-content: center;
+        align-items: flex-start;
+        width: 100%;
+        max-width: 1400px;
+      }
+
+      .frame-block {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .label {
+        font-family: 'Familjen Grotesk', sans-serif;
+        font-weight: 600;
+        font-size: 15px;
+        color: var(--coffee);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .label .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--peach);
+      }
+
+      /* Moldura de celular */
+      .phone-shell {
+        position: relative;
+        width: 418px;
+        max-width: calc(90vw + 28px);
+        background: var(--coffee);
+        border-radius: 44px;
+        padding: 14px;
+        box-sizing: border-box;
+        box-shadow: 0 24px 50px -18px rgba(30, 30, 30, 0.45);
+      }
+
+      .phone-notch {
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 120px;
+        height: 22px;
+        background: var(--coffee);
+        border-radius: 0 0 16px 16px;
+        z-index: 2;
+      }
+
+      .phone-screen-wrap {
+        position: relative;
+        border-radius: 30px;
+        overflow: hidden;
+        background: var(--cream);
+      }
+
+      .phone-screen-wrap iframe {
+        display: block;
+        width: 390px;
+        height: 780px;
+        border: none;
+      }
+
+      /* Moldura de computador */
+      .desktop-shell {
+        width: min(900px, 82vw);
+        background: #d8d4cb;
+        border-radius: 14px 14px 0 0;
+        padding: 10px 10px 0;
+        box-shadow: 0 24px 50px -18px rgba(30, 30, 30, 0.35);
+      }
+
+      .desktop-bar {
+        display: flex;
+        gap: 6px;
+        padding: 4px 6px 10px;
+      }
+
+      .desktop-bar span {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: rgba(30, 30, 30, 0.25);
+      }
+
+      .desktop-screen-wrap {
+        border-radius: 8px 8px 0 0;
+        overflow: hidden;
+        background: var(--cream);
+      }
+
+      .desktop-screen-wrap iframe {
+        display: block;
+        width: min(900px, 82vw);
+        height: 780px;
+        border: none;
+      }
+
+      .desktop-stand {
+        width: 140px;
+        height: 16px;
+        background: #c7c2b7;
+        margin: 0 auto;
+        border-radius: 0 0 6px 6px;
+      }
+
+      @media (max-width: 700px) {
+        .stage {
+          gap: 56px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>FinPilot — Preview duplo</h1>
+      <p>
+        O mesmo app rodando ao vivo em <span class="app-url">localhost:5173</span> —
+        celular à esquerda, computador à direita. Clique à vontade, é o app de verdade.
+      </p>
+    </header>
+
+    <div class="stage">
+      <div class="frame-block">
+        <div class="label"><span class="dot"></span>Celular</div>
+        <div class="phone-shell">
+          <div class="phone-notch"></div>
+          <div class="phone-screen-wrap">
+            <iframe src="http://localhost:5173/" title="FinPilot - visão celular"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <div class="frame-block">
+        <div class="label"><span class="dot"></span>Computador</div>
+        <div class="desktop-shell">
+          <div class="desktop-bar">
+            <span></span><span></span><span></span>
+          </div>
+          <div class="desktop-screen-wrap">
+            <iframe src="http://localhost:5173/" title="FinPilot - visão computador"></iframe>
+          </div>
+        </div>
+        <div class="desktop-stand"></div>
+      </div>
+    </div>
+  </body>
+</html>

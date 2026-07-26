@@ -1,0 +1,12 @@
+{
+  "name": "FinPilot",
+  "short_name": "FinPilot",
+  "description": "Seu panorama financeiro",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FBFBFB",
+  "theme_color": "#F9876F",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
