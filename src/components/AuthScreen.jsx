@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabaseClient.js'
 import { Field, TextInput, PrimaryButton, GhostButton, Card } from './ui.jsx'
+import { GoogleIcon } from './icons.jsx'
 import { CatMascotGlasses } from '../CatMascot.jsx'
 
 function AuthScreen() {
@@ -10,6 +11,14 @@ function AuthScreen() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+
+  async function handleGoogleLogin() {
+    setError('')
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+  }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -84,6 +93,16 @@ function AuthScreen() {
             {loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
           </PrimaryButton>
         </form>
+
+        <div className="flex items-center gap-3 text-xs text-gray">
+          <span className="h-px flex-1 bg-ink/10" />
+          ou
+          <span className="h-px flex-1 bg-ink/10" />
+        </div>
+
+        <GhostButton type="button" onClick={handleGoogleLogin}>
+          <GoogleIcon /> Continuar com Google
+        </GhostButton>
 
         <GhostButton
           type="button"
