@@ -84,15 +84,30 @@ export async function loadDismissedNotifications() {
 }
 
 export async function loadProfile() {
-  const { data, error } = await supabase.from('profiles').select('name, gender, avatar_url').maybeSingle()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('name, gender, avatar_url, gross_salary')
+    .maybeSingle()
   if (error) throw error
-  return data ? { name: data.name ?? '', gender: data.gender ?? '', avatarUrl: data.avatar_url ?? '' } : null
+  return data
+    ? {
+        name: data.name ?? '',
+        gender: data.gender ?? '',
+        avatarUrl: data.avatar_url ?? '',
+        grossSalary: data.gross_salary ?? '',
+      }
+    : null
 }
 
-export async function saveProfile(userId, { name, gender, avatarUrl }) {
-  const { error } = await supabase
-    .from('profiles')
-    .upsert({ user_id: userId, name, gender, avatar_url: avatarUrl, updated_at: new Date().toISOString() })
+export async function saveProfile(userId, { name, gender, avatarUrl, grossSalary }) {
+  const { error } = await supabase.from('profiles').upsert({
+    user_id: userId,
+    name,
+    gender,
+    avatar_url: avatarUrl,
+    gross_salary: grossSalary || null,
+    updated_at: new Date().toISOString(),
+  })
   if (error) throw error
 }
 

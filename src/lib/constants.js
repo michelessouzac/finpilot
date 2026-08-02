@@ -27,7 +27,20 @@ export function todayIso() {
 export function formatDate(isoDate) {
   if (!isoDate) return ''
   const [year, month, day] = isoDate.split('-')
-  return `${day}/${month}/${year}`
+  return `${day}/${month}/${year.slice(-2)}`
+}
+
+// Jornada padrão usada pra converter salário mensal em valor da hora
+// trabalhada (CLT: 44h/semana ≈ 220h/mês).
+export const WORK_HOURS_PER_MONTH = 220
+
+export function formatWorkHours(hours) {
+  const totalMinutes = Math.round(hours * 60)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  if (h === 0) return `${m} min`
+  if (m === 0) return `${h}h`
+  return `${h}h ${m}min`
 }
 
 export const DEFAULT_CATEGORIES = [

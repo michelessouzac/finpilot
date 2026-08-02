@@ -938,7 +938,7 @@ function AppContent({ session }) {
         )}
 
         {tab === 'simulador' && (
-          <SimuladorScreen accounts={accounts} transactions={transactions} goals={goals} />
+          <SimuladorScreen accounts={accounts} transactions={transactions} goals={goals} userId={userId} />
         )}
 
         {tab === 'insights' && (

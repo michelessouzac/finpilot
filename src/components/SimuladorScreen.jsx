@@ -1,15 +1,49 @@
-import { useState } from 'react'
-import { Card, Field, TextInput, Select, PrimaryButton, EmptyState } from './ui'
-import { QuestionIcon, ArrowDownIcon } from './icons'
-import { formatMoney, formatDate, todayIso } from '../lib/constants'
-import { simulatePurchase, simulateGoalImpact } from '../lib/simulator'
+import { useEffect, useState } from 'react'
+import { Card, Field, TextInput, Select, PrimaryButton, GhostButton, EmptyState } from './ui'
+import { QuestionIcon, ArrowDownIcon, ClockIcon } from './icons'
+import { formatMoney, formatDate, formatWorkHours, todayIso } from '../lib/constants'
+import { simulatePurchase, simulateGoalImpact, hoursToBuy } from '../lib/simulator'
+import { loadProfile, saveProfile } from '../lib/storage'
 
 const emptyForm = { description: '', amount: '', date: todayIso(), method: 'avista', cardId: '', installments: '1' }
 
-function SimuladorScreen({ accounts, transactions, goals }) {
+function SimuladorScreen({ accounts, transactions, goals, userId }) {
   const [form, setForm] = useState(emptyForm)
   const [result, setResult] = useState(null)
   const cards = accounts.filter((a) => a.type === 'cartao')
+
+  const [profile, setProfile] = useState(null)
+  const [salaryInput, setSalaryInput] = useState('')
+  const [editingSalary, setEditingSalary] = useState(false)
+  const [savingSalary, setSavingSalary] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    loadProfile().then((p) => {
+      if (cancelled) return
+      const loaded = p ?? { name: '', gender: '', avatarUrl: '', grossSalary: '' }
+      setProfile(loaded)
+      setSalaryInput(loaded.grossSalary ? String(loaded.grossSalary) : '')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  async function handleSaveSalary(e) {
+    e.preventDefault()
+    const grossSalary = Number(salaryInput)
+    if (!grossSalary || grossSalary <= 0) return
+
+    setSavingSalary(true)
+    try {
+      await saveProfile(userId, { ...profile, grossSalary })
+      setProfile((p) => ({ ...p, grossSalary }))
+      setEditingSalary(false)
+    } finally {
+      setSavingSalary(false)
+    }
+  }
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -50,8 +84,64 @@ function SimuladorScreen({ accounts, transactions, goals }) {
   const cardCheck = result?.projection.cardCheck
   const overspend = result?.projection.overspend
 
+  const hourlyWage = profile?.grossSalary ? Number(profile.grossSalary) / 220 : null
+
   return (
     <div className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-3">
+        <div className="flex items-center gap-2">
+          <ClockIcon className="text-coral" width={20} height={20} />
+          <h3 className="font-display text-base font-semibold text-ink">Seu salário bruto</h3>
+        </div>
+
+        {!editingSalary && hourlyWage && (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-gray">
+              {formatMoney(profile.grossSalary)}/mês · {formatMoney(hourlyWage)}/hora (÷ 220h)
+            </p>
+            <GhostButton type="button" onClick={() => setEditingSalary(true)}>
+              Editar
+            </GhostButton>
+          </div>
+        )}
+
+        {!editingSalary && !hourlyWage && (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-gray">
+              Cadastre pra ver quantas horas de trabalho cada compra custa.
+            </p>
+            <GhostButton type="button" onClick={() => setEditingSalary(true)}>
+              Cadastrar
+            </GhostButton>
+          </div>
+        )}
+
+        {editingSalary && (
+          <form className="flex items-end gap-2" onSubmit={handleSaveSalary}>
+            <Field label="Salário bruto mensal">
+              <TextInput
+                type="number"
+                step="0.01"
+                inputMode="decimal"
+                value={salaryInput}
+                onChange={(e) => setSalaryInput(e.target.value)}
+                placeholder="0,00"
+                autoFocus
+                required
+              />
+            </Field>
+            <PrimaryButton type="submit" disabled={savingSalary}>
+              {savingSalary ? 'Salvando...' : 'Salvar'}
+            </PrimaryButton>
+            {hourlyWage && (
+              <GhostButton type="button" onClick={() => setEditingSalary(false)}>
+                Cancelar
+              </GhostButton>
+            )}
+          </form>
+        )}
+      </Card>
+
       <Card className="flex flex-col gap-4">
         <div>
           <h2 className="font-display text-xl font-semibold text-ink">Simular compra futura</h2>
@@ -218,6 +308,36 @@ function SimuladorScreen({ accounts, transactions, goals }) {
                 ⚠️ A parcela de {formatMoney(overspend.installmentAmount)} é maior que sua sobra mensal atual
                 ({formatMoney(overspend.monthlyNet)}) — durante {overspend.months}{' '}
                 {overspend.months === 1 ? 'mês' : 'meses'} você vai gastar mais do que ganha.
+              </p>
+            )}
+          </Card>
+
+          <Card className="flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+              <ClockIcon className="text-coral" width={20} height={20} />
+              <h3 className="font-display text-lg font-semibold text-ink">Horas de trabalho</h3>
+            </div>
+
+            {hourlyWage ? (
+              <>
+                <p className="text-sm text-gray">
+                  Ao valor da sua hora ({formatMoney(hourlyWage)}), "{result.purchase.description}"
+                  custa
+                </p>
+                <span className="font-display text-2xl font-bold text-ink">
+                  {formatWorkHours(hoursToBuy(result.purchase.amount, profile.grossSalary))}
+                </span>
+                {result.projection.installments > 1 && (
+                  <p className="text-xs text-gray">
+                    {formatWorkHours(hoursToBuy(result.projection.installmentAmount, profile.grossSalary))}{' '}
+                    de trabalho por parcela
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="text-sm text-gray">
+                Cadastre seu salário bruto acima pra ver quantas horas de trabalho essa compra
+                custa.
               </p>
             )}
           </Card>

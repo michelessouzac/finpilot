@@ -12,6 +12,7 @@ function ProfileScreen({ accounts, transactions, goals, onNavigate, userEmail, u
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState('')
   const [gender, setGender] = useState('')
+  const [grossSalary, setGrossSalary] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState('')
@@ -26,6 +27,7 @@ function ProfileScreen({ accounts, transactions, goals, onNavigate, userEmail, u
       if (cancelled || !profile) return
       setName(profile.name)
       setGender(profile.gender)
+      setGrossSalary(profile.grossSalary ? String(profile.grossSalary) : '')
       setAvatarUrl(profile.avatarUrl)
     })
     return () => {
@@ -53,7 +55,7 @@ function ProfileScreen({ accounts, transactions, goals, onNavigate, userEmail, u
       if (avatarFile) {
         finalAvatarUrl = await uploadAvatar(userId, avatarFile)
       }
-      await saveProfile(userId, { name, gender, avatarUrl: finalAvatarUrl })
+      await saveProfile(userId, { name, gender, avatarUrl: finalAvatarUrl, grossSalary: Number(grossSalary) || null })
       setAvatarUrl(finalAvatarUrl)
       setAvatarFile(null)
       setAvatarPreview('')
@@ -141,6 +143,20 @@ function ProfileScreen({ accounts, transactions, goals, onNavigate, userEmail, u
                 <option value="outro">Outro</option>
               </Select>
             </Field>
+            <Field label="Salário bruto mensal">
+              <TextInput
+                type="number"
+                step="0.01"
+                inputMode="decimal"
+                value={grossSalary}
+                onChange={(e) => setGrossSalary(e.target.value)}
+                placeholder="0,00"
+              />
+            </Field>
+            <p className="text-xs text-gray">
+              Usado na aba <strong>E se?</strong> pra calcular quantas horas de trabalho uma
+              compra custa (salário ÷ 220h).
+            </p>
             {error && <p className="text-sm font-medium text-rose">{error}</p>}
             <div className="flex gap-2">
               <PrimaryButton className="flex-1" onClick={handleSaveProfile} disabled={saving}>

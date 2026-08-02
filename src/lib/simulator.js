@@ -1,4 +1,4 @@
-import { todayIso } from './constants'
+import { todayIso, WORK_HOURS_PER_MONTH } from './constants'
 import { computeProjection, accountCurrentBalance } from './dashboard'
 import { computeForecast, computeSaved } from './goals'
 
@@ -107,4 +107,13 @@ export function simulateGoalImpact(goal, purchaseAmount) {
     newDate: addDaysIso(forecast.date, extraDays),
     extraDays,
   }
+}
+
+// Quantas horas de trabalho são necessárias pra pagar essa compra, a partir
+// do salário bruto mensal cadastrado (valor da hora = salário / 220h).
+export function hoursToBuy(amount, grossSalary) {
+  const salary = Number(grossSalary) || 0
+  if (salary <= 0) return null
+  const hourlyWage = salary / WORK_HOURS_PER_MONTH
+  return amount / hourlyWage
 }
