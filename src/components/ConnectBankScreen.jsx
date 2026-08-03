@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { PluggyConnect } from 'react-pluggy-connect'
 import { PrimaryButton, GhostButton, Card, EmptyState } from './ui'
 import { BankIcon, CloseIcon } from './icons'
@@ -54,6 +54,15 @@ function ConnectBankScreen({ items, onClose, onConnected }) {
   const [syncingItemId, setSyncingItemId] = useState(null)
   const [error, setError] = useState('')
   const [lastSyncMessage, setLastSyncMessage] = useState('')
+  // Bancos reais (diferente do banco fictício de teste) passam por uma
+  // autorização à parte fora do widget (ex: pop-up do Meu Pluggy) — se a
+  // pessoa sair antes do widget confirmar, `onSuccess` nunca dispara e a
+  // conexão fica "esquecida", sem nunca ter sido sincronizada. Por isso
+  // também escutamos `onEvent`/`ITEM_RESPONSE`, que a Pluggy manda assim que
+  // a conexão termina de verdade do lado dela, independente do widget seguir
+  // aberto ou não. `syncedItemIds` evita disparar a mesma sincronização duas
+  // vezes caso os dois gatilhos aconteçam pro mesmo item.
+  const syncedItemIds = useRef(new Set())
 
   async function openWidget(itemId) {
     setError('')
@@ -69,6 +78,7 @@ function ConnectBankScreen({ items, onClose, onConnected }) {
   }
 
   async function runSync(itemId) {
+    syncedItemIds.current.add(itemId)
     setError('')
     setSyncingItemId(itemId)
     try {
@@ -87,7 +97,17 @@ function ConnectBankScreen({ items, onClose, onConnected }) {
   function handleSuccess(itemData) {
     setConnectToken(null)
     const itemId = itemData?.item?.id
-    if (itemId) runSync(itemId)
+    if (itemId && !syncedItemIds.current.has(itemId)) runSync(itemId)
+  }
+
+  // Dispara assim que a Pluggy confirma que o item terminou de conectar de
+  // verdade (status/execução com sucesso), sem depender do widget seguir
+  // aberto até esse ponto — cobre o caso de bancos com autorização externa.
+  function handleWidgetEvent(payload) {
+    if (payload?.event !== 'ITEM_RESPONSE') return
+    const item = payload.item
+    const finished = item?.status === 'UPDATED' || item?.executionStatus === 'SUCCESS'
+    if (finished && item?.id && !syncedItemIds.current.has(item.id)) runSync(item.id)
   }
 
   return (
@@ -144,6 +164,7 @@ function ConnectBankScreen({ items, onClose, onConnected }) {
           connectToken={connectToken}
           includeSandbox
           onSuccess={handleSuccess}
+          onEvent={handleWidgetEvent}
           onError={() => setError('A conexão com o banco não foi concluída.')}
           onClose={() => setConnectToken(null)}
         />
