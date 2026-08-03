@@ -20,6 +20,16 @@ function emptyForm(accounts) {
   }
 }
 
+// Converte o dia do vencimento (1-31) num ISO date pro input type="date"
+// exibir algo navegável — ancorado no mês atual, já que pra conta recorrente
+// só o dia importa (repete todo mês).
+function dueDayToIso(day) {
+  const now = new Date()
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+  const clamped = Math.min(Number(day) || 1, lastDay)
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(clamped).padStart(2, '0')}`
+}
+
 // A bill salva não tem `installmentsEnabled`/`installmentsCount` (só
 // `installments`) — reconstrói esses campos auxiliares do form a partir dela.
 function formFrom(bill, accounts) {
@@ -174,15 +184,17 @@ function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
         )}
 
         {form.recurring ? (
-          <Field label="Dia do vencimento">
+          <Field label="Data de vencimento">
             <TextInput
-              type="number"
-              min="1"
-              max="31"
-              value={form.dueDay}
-              onChange={(e) => setForm({ ...form, dueDay: e.target.value })}
+              type="date"
+              value={dueDayToIso(form.dueDay)}
+              onChange={(e) => {
+                if (!e.target.value) return
+                setForm({ ...form, dueDay: String(Number(e.target.value.slice(-2))) })
+              }}
               required
             />
+            <span className="text-xs text-gray">Repete todo dia {form.dueDay} de cada mês</span>
           </Field>
         ) : (
           <Field label={form.installmentsEnabled ? 'Data da 1ª parcela' : 'Data de vencimento'}>

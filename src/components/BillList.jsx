@@ -10,6 +10,7 @@ import {
 import { recurringCommitmentInsight } from '../lib/insights'
 import { Card, EmptyState, TextInput, Select, PrimaryButton, GhostButton } from './ui'
 import InsightNote from './InsightNote'
+import SwipeToDelete from './SwipeToDelete'
 import {
   ReceiptIcon,
   PencilIcon,
@@ -122,6 +123,7 @@ function BillCard({
 
   return (
     <div ref={cardRef}>
+    <SwipeToDelete onDelete={() => onDelete(bill.id)} deleteLabel={`Apagar ${bill.name}`}>
     <Card
       className={`flex flex-col gap-3 transition-shadow ${
         highlighted ? 'ring-2 ring-coral' : ''
@@ -265,6 +267,7 @@ function BillCard({
         </PrimaryButton>
       )}
     </Card>
+    </SwipeToDelete>
     </div>
   )
 }
@@ -278,6 +281,7 @@ function TransactionCard({ tx, accounts, categories, onEdit, onDelete }) {
   const isEntrada = tx.type === 'entrada'
 
   return (
+    <SwipeToDelete onDelete={() => onDelete(tx.id)} deleteLabel={`Apagar ${tx.description}`}>
     <Card className="flex items-center justify-between gap-3">
       <div className="flex items-start gap-3">
         <div
@@ -334,6 +338,7 @@ function TransactionCard({ tx, accounts, categories, onEdit, onDelete }) {
         </div>
       </div>
     </Card>
+    </SwipeToDelete>
   )
 }
 
