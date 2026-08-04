@@ -83,9 +83,17 @@ function ConnectBankScreen({ items, onClose, onConnected }) {
     setSyncingItemId(itemId)
     try {
       const result = await syncOpenFinanceItem(itemId)
-      setLastSyncMessage(
-        `${result.transactionsInserted} lançamento(s) novo(s) · ${result.accountsSynced} conta(s) do tipo banco encontrada(s) (${result.accountsCreated} criada(s) agora) · ${result.skippedNonBankAccounts} conta(s) ignorada(s) por não ser tipo banco.`,
-      )
+      const parts = [
+        `${result.transactionsInserted} lançamento(s) novo(s)`,
+        `${result.accountsSynced} conta(s) e ${result.cardsSynced} cartão(ões) sincronizados (${result.accountsCreated} criada(s) agora)`,
+      ]
+      if (result.accountsSkipped > 0) {
+        parts.push(`${result.accountsSkipped} conta(s) ignorada(s) por não ser banco nem cartão`)
+      }
+      if (result.cardsSynced > 0) {
+        parts.push('lembre de escolher a "conta que paga a fatura" no cartão sincronizado, em Contas')
+      }
+      setLastSyncMessage(`${parts.join(' · ')}.`)
       onConnected?.()
     } catch (err) {
       setError(`Não conseguimos sincronizar esse banco (${err.message}).`)
@@ -125,9 +133,9 @@ function ConnectBankScreen({ items, onClose, onConnected }) {
       </div>
 
       <p className="text-sm text-gray">
-        Conecte sua conta bancária via Open Finance pra suas contas e lançamentos entrarem sozinhos, sem
-        precisar digitar nada. Por enquanto sincronizamos contas correntes e poupança — cartão de crédito
-        continua pela importação de fatura em PDF.
+        Conecte sua conta bancária via Open Finance pra suas contas, cartões e lançamentos entrarem
+        sozinhos, sem precisar digitar nada. Cartão de crédito sincronizado ainda precisa que você escolha
+        a conta que paga a fatura (em Contas) pra fechar sozinho todo mês.
       </p>
 
       {error && <p className="rounded-2xl bg-rose/10 px-4 py-3 text-sm text-ink">{error}</p>}

@@ -1,11 +1,12 @@
 // Busca (na Pluggy) as contas e transações de um item conectado e grava no
 // Supabase. Chamada pelo front logo depois que a pessoa conecta o banco no
 // widget, e também pode ser chamada de novo (botão "Sincronizar") a qualquer
-// momento. Por enquanto só sincroniza contas do tipo BANK (corrente/poupança)
-// — cartão de crédito (CREDIT) fica de fora nessa primeira versão porque a
-// lógica de fatura/fechamento do FinPilot já é toda feita a partir de
-// lançamento manual ou import de PDF, e misturar as duas fontes exige mais
-// cuidado do que cabe aqui agora.
+// momento. Sincroniza contas do tipo BANK (corrente/poupança) como conta
+// normal, e CREDIT (cartão) como conta tipo "cartao" — o fechamento de
+// fatura em si continua sendo o mesmo efeito automático que já existe pra
+// cartão manual/importado (App.jsx: fatura fechada vira conta a pagar
+// sozinha, a partir de accounts.closingDay/dueDay + transactions), então
+// aqui só precisamos gravar a conta e os lançamentos certos.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { guessCategory, normalizeDescription } from "./categorize.ts";
@@ -118,6 +119,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const bankAccounts = pluggyAccounts.filter((a) => a.type === "BANK");
+  const creditAccounts = pluggyAccounts.filter((a) => a.type === "CREDIT");
 
   const [{ data: existingAccounts }, { data: categoryRows }] = await Promise.all([
     admin.from("accounts").select("id, data").eq("user_id", userId),
@@ -127,6 +129,83 @@ Deno.serve(async (req: Request) => {
 
   let accountsCreated = 0;
   let transactionsInserted = 0;
+
+  // Busca (com paginação por cursor) e grava as transações novas de uma
+  // conta, pulando as que já foram importadas antes (via
+  // openFinanceTransactionId). Serve pra conta banco e cartão, mas o sinal do
+  // valor tem convenção OPOSTA entre os dois na Pluggy: num extrato de banco
+  // negativo é saída de dinheiro; numa fatura de cartão negativo é
+  // pagamento/estorno (ou seja, o que reduz a fatura, "entrada" no sentido do
+  // FinPilot) e positivo é compra nova ("saida").
+  async function syncAccountTransactions(
+    pluggyAccountId: string,
+    localAccountId: string,
+    accountKind: "BANK" | "CREDIT",
+  ) {
+    const pluggyTransactions: any[] = [];
+    let cursor: string | undefined;
+    do {
+      const query = new URLSearchParams({ accountId: pluggyAccountId });
+      if (cursor) query.set("cursor", cursor);
+      let txData;
+      try {
+        txData = await pluggyFetch(`/v2/transactions?${query.toString()}`, apiKey);
+      } catch (err) {
+        console.error("pluggy_transactions_failed", err);
+        break;
+      }
+      pluggyTransactions.push(...(txData.results ?? []));
+      cursor = txData.next ?? undefined;
+    } while (cursor);
+
+    const { data: existingTx } = await admin
+      .from("transactions")
+      .select("data")
+      .eq("user_id", userId)
+      .eq("data->>accountId", localAccountId);
+    const existingIds = new Set(
+      (existingTx ?? []).map((t) => t.data?.openFinanceTransactionId).filter(Boolean),
+    );
+
+    const newRows = pluggyTransactions
+      .filter((t) => !existingIds.has(t.id))
+      .map((t) => {
+        const description = t.description || "Lançamento";
+        const normalized = normalizeDescription(description);
+        const negative = Number(t.amount) < 0;
+        const type = accountKind === "CREDIT" ? (negative ? "entrada" : "saida") : negative ? "saida" : "entrada";
+        const installmentNumber = t.creditCardMetadata?.installmentNumber;
+        const totalInstallments = t.creditCardMetadata?.totalInstallments;
+        const installment =
+          installmentNumber && totalInstallments && totalInstallments > 1
+            ? { index: installmentNumber, total: totalInstallments }
+            : null;
+        return {
+          id: crypto.randomUUID(),
+          user_id: userId,
+          data: {
+            description,
+            amount: Math.abs(Number(t.amount) || 0),
+            type,
+            date: String(t.date).slice(0, 10),
+            accountId: localAccountId,
+            recurring: false,
+            installment,
+            category: guessCategory(normalized, categories),
+            source: "open_finance",
+            openFinanceTransactionId: t.id,
+          },
+        };
+      });
+
+    if (newRows.length === 0) return 0;
+    const { error } = await admin.from("transactions").insert(newRows);
+    if (error) {
+      console.error("transactions_insert_failed", error);
+      return 0;
+    }
+    return newRows.length;
+  }
 
   for (const pAccount of bankAccounts) {
     let accountId = (existingAccounts ?? []).find(
@@ -153,64 +232,7 @@ Deno.serve(async (req: Request) => {
       accountsCreated++;
     }
 
-    // Busca todas as páginas de transações dessa conta. GET /transactions
-    // (por número de página) foi descontinuado pela Pluggy — o endpoint
-    // atual é /v2/transactions, com paginação por cursor.
-    const pluggyTransactions: any[] = [];
-    let cursor: string | undefined;
-    do {
-      const query = new URLSearchParams({ accountId: pAccount.id });
-      if (cursor) query.set("cursor", cursor);
-      let txData;
-      try {
-        txData = await pluggyFetch(`/v2/transactions?${query.toString()}`, apiKey);
-      } catch (err) {
-        console.error("pluggy_transactions_failed", err);
-        break;
-      }
-      pluggyTransactions.push(...(txData.results ?? []));
-      cursor = txData.next ?? undefined;
-    } while (cursor);
-
-    const { data: existingTx } = await admin
-      .from("transactions")
-      .select("data")
-      .eq("user_id", userId)
-      .eq("data->>accountId", accountId);
-    const existingIds = new Set(
-      (existingTx ?? []).map((t) => t.data?.openFinanceTransactionId).filter(Boolean),
-    );
-
-    const newRows = pluggyTransactions
-      .filter((t) => !existingIds.has(t.id))
-      .map((t) => {
-        const description = t.description || "Lançamento";
-        const normalized = normalizeDescription(description);
-        return {
-          id: crypto.randomUUID(),
-          user_id: userId,
-          data: {
-            description,
-            amount: Math.abs(Number(t.amount) || 0),
-            type: Number(t.amount) < 0 ? "saida" : "entrada",
-            date: String(t.date).slice(0, 10),
-            accountId,
-            recurring: false,
-            category: guessCategory(normalized, categories),
-            source: "open_finance",
-            openFinanceTransactionId: t.id,
-          },
-        };
-      });
-
-    if (newRows.length > 0) {
-      const { error } = await admin.from("transactions").insert(newRows);
-      if (error) {
-        console.error("transactions_insert_failed", error);
-      } else {
-        transactionsInserted += newRows.length;
-      }
-    }
+    transactionsInserted += await syncAccountTransactions(pAccount.id, accountId, "BANK");
 
     // Recalibra o "saldo de partida" da conta pra que
     // amount + soma(lançamentos) bata com o saldo real informado pela Pluggy
@@ -243,11 +265,71 @@ Deno.serve(async (req: Request) => {
       .eq("id", accountId);
   }
 
+  for (const pAccount of creditAccounts) {
+    let accountId = (existingAccounts ?? []).find(
+      (a) => a.data?.openFinance?.accountId === pAccount.id,
+    )?.id;
+
+    const creditData = pAccount.creditData ?? {};
+    // A Pluggy manda a data completa do fechamento/vencimento da fatura em
+    // aberto agora — só o dia do mês interessa aqui, porque é isso que o
+    // FinPilot usa pra calcular qualquer período de fatura, passado ou
+    // futuro (ver invoicePeriod em lib/invoices.js), não só o atual.
+    const closeDay = creditData.balanceCloseDate ? new Date(creditData.balanceCloseDate).getUTCDate() : null;
+    const dueDay = creditData.balanceDueDate ? new Date(creditData.balanceDueDate).getUTCDate() : null;
+
+    if (!accountId) {
+      accountId = crypto.randomUUID();
+      const { error } = await admin.from("accounts").insert({
+        id: accountId,
+        user_id: userId,
+        data: {
+          name: pAccount.name || item.connector?.name || "Cartão conectado",
+          type: "cartao",
+          amount: creditData.creditLimit ?? 0,
+          closingDay: closeDay ?? 25,
+          dueDay: dueDay ?? 10,
+          // A Pluggy não informa de qual conta sai o pagamento da fatura —
+          // isso fica em branco até a pessoa escolher manualmente (editar o
+          // cartão); só a partir daí o FinPilot fecha a fatura sozinho.
+          paymentAccountId: null,
+          source: "open_finance",
+          openFinance: { itemId, accountId: pAccount.id },
+        },
+      });
+      if (error) {
+        console.error("card_account_insert_failed", error);
+        continue;
+      }
+      accountsCreated++;
+    }
+
+    transactionsInserted += await syncAccountTransactions(pAccount.id, accountId, "CREDIT");
+
+    const currentData = (existingAccounts ?? []).find((a) => a.id === accountId)?.data ?? {};
+    await admin
+      .from("accounts")
+      .update({
+        data: {
+          ...currentData,
+          name: pAccount.name || currentData.name || item.connector?.name || "Cartão conectado",
+          type: "cartao",
+          amount: creditData.creditLimit ?? currentData.amount ?? 0,
+          closingDay: closeDay ?? currentData.closingDay ?? 25,
+          dueDay: dueDay ?? currentData.dueDay ?? 10,
+          source: "open_finance",
+          openFinance: { itemId, accountId: pAccount.id },
+        },
+      })
+      .eq("id", accountId);
+  }
+
   return jsonResponse({
     ok: true,
     accountsSynced: bankAccounts.length,
+    cardsSynced: creditAccounts.length,
     accountsCreated,
     transactionsInserted,
-    skippedNonBankAccounts: pluggyAccounts.length - bankAccounts.length,
+    accountsSkipped: pluggyAccounts.length - bankAccounts.length - creditAccounts.length,
   });
 });
