@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatMoney, formatDate, monthLabel } from '../lib/constants'
 import {
   listInvoicePeriods,
@@ -75,10 +75,19 @@ function CardInfoSummary({ card, transactions, bills, billPayments }) {
   )
 }
 
-function CardInvoiceView({ card, transactions, categories }) {
+function CardInvoiceView({ card, transactions, categories, focusPeriodKey }) {
   const periods = useMemo(() => listInvoicePeriods(card, { pastCount: 6, futureCount: 1 }), [card])
   const currentIndex = periods.findIndex((p) => !isPeriodClosed(p))
   const [index, setIndex] = useState(currentIndex === -1 ? periods.length - 1 : currentIndex)
+
+  // Depois de importar uma fatura, pula pra ela — sem isso a tela continua
+  // mostrando a fatura em aberto por padrão, que quase nunca é a que acabou
+  // de ser importada (a fatura importada normalmente já fechou).
+  useEffect(() => {
+    if (!focusPeriodKey) return
+    const idx = periods.findIndex((p) => p.periodKey === focusPeriodKey)
+    if (idx !== -1) setIndex(idx)
+  }, [focusPeriodKey, periods])
 
   const period = periods[index]
   const items = useMemo(
@@ -182,11 +191,13 @@ function CardsScreen({
   const selectedId = isControlled ? selectedCardId : internalSelectedId
   const setSelectedId = isControlled ? onSelectCard : setInternalSelectedId
   const [showImport, setShowImport] = useState(cards.length === 0)
+  const [focusPeriodKey, setFocusPeriodKey] = useState(null)
 
-  function handleImport(accountId, items) {
+  function handleImport(accountId, items, periodKey) {
     onImport(accountId, items)
     setSelectedId(accountId)
     setShowImport(false)
+    setFocusPeriodKey(periodKey ?? null)
   }
 
   // Mantém sempre a mesma estrutura de árvore (esse <div>), mesmo sem
@@ -236,7 +247,12 @@ function CardsScreen({
       )}
 
       {selectedCard && (
-        <CardInvoiceView card={selectedCard} transactions={transactions} categories={categories} />
+        <CardInvoiceView
+          card={selectedCard}
+          transactions={transactions}
+          categories={categories}
+          focusPeriodKey={focusPeriodKey}
+        />
       )}
     </div>
   )

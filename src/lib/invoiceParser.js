@@ -469,3 +469,26 @@ export function reconcilesWithInvoiceMetadata(candidates, metadata) {
 
   return true
 }
+
+// Validação pós-importação: registra um erro estruturado (banco, cartão,
+// competência, total esperado/calculado, diferença) quando a soma dos
+// lançamentos reconhecidos não bate com o total impresso na própria fatura.
+// Reaproveita `reconcilesWithInvoiceMetadata`/`candidatesNetTotal` em vez de
+// duplicar a comparação — só empacota o resultado no formato pedido pra
+// registro/depuração. Retorna `null` quando não há nada pra reportar (bateu,
+// ou a fatura não imprimiu nenhum total pra comparar).
+export function buildInvoiceValidationIssue({ card, periodKey, parsedCandidates, metadata }) {
+  const totalEsperado = metadata?.periodPurchasesTotal ?? metadata?.invoiceTotal ?? null
+  if (totalEsperado == null) return null
+  if (reconcilesWithInvoiceMetadata(parsedCandidates, metadata)) return null
+
+  const totalCalculado = candidatesNetTotal(parsedCandidates)
+  return {
+    banco: card?.name ?? null,
+    cartao: card?.name ?? null,
+    competencia: periodKey ?? null,
+    totalEsperado,
+    totalCalculado,
+    diferenca: totalCalculado - totalEsperado,
+  }
+}

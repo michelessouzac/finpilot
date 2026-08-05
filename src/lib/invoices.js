@@ -48,6 +48,46 @@ export function currentPeriodKey(card, today = todayIso()) {
   return periodKeyForDate(today, card)
 }
 
+// Identidade estável de uma fatura: cartão + competência. Não é uma linha
+// própria no banco — é só a chave usada pra vincular transações à fatura
+// delas (ver `resolveInvoiceId`/`backfillInvoiceIds`), a mesma dupla
+// (cardId + periodKey) que o efeito de gerar contas a partir de fatura
+// fechada já usa informalmente pra identificar cada fatura (App.jsx).
+export function invoiceIdFor(accountId, periodKey) {
+  return `${accountId}:${periodKey}`
+}
+
+// Calcula a fatura (invoiceId + periodKey) que uma transação de cartão deve
+// carregar, a partir da data dela e do fechamento do cartão. Retorna `null`
+// se o cartão não tem `closingDay` cadastrado — nesse caso é melhor deixar a
+// transação sem fatura (sinal visível de que falta configurar o cartão) do
+// que chutar um fechamento, o que faria a transação entrar silenciosamente
+// na fatura errada.
+export function resolveInvoiceId(dateIso, card) {
+  if (card?.closingDay == null) return null
+  const periodKey = periodKeyForDate(dateIso, card)
+  return { invoiceId: invoiceIdFor(card.id, periodKey), periodKey }
+}
+
+// Migração auto-aplicada: carimba `invoiceId`/`periodKey` em toda transação
+// de cartão que ainda não tem (dados importados/lançados antes desse campo
+// existir). Nunca recalcula uma transação que já tem invoiceId — uma vez
+// vinculada, a fatura da transação fica congelada mesmo que o fechamento do
+// cartão mude depois; é exatamente isso que evita o bug de uma fatura já
+// importada "sumir" quando o dia de fechamento é ajustado.
+export function backfillInvoiceIds(transactions, accounts) {
+  const cardsById = new Map(accounts.filter((a) => a.type === 'cartao').map((a) => [a.id, a]))
+
+  return (transactions ?? []).map((t) => {
+    if (t.invoiceId) return t
+    const card = cardsById.get(t.accountId)
+    if (!card) return t
+    const resolved = resolveInvoiceId(t.date, card)
+    if (!resolved) return t
+    return { ...t, ...resolved }
+  })
+}
+
 // Vencimento da fatura: convenção comum no Brasil — se o dia de vencimento é
 // depois do dia de fechamento, vence no mesmo mês do fechamento; senão, só
 // vence no mês seguinte.
@@ -95,10 +135,13 @@ export function projectFutureInstallments(item) {
   return projected
 }
 
+// Fonte da verdade de "quais transações pertencem a essa fatura": o vínculo
+// gravado (invoiceId), não mais a data recalculada contra o fechamento atual
+// do cartão — assim editar o dia de fechamento de um cartão não reembaralha
+// faturas já importadas/lançadas.
 export function cardTransactionsInPeriod(transactions, cardId, period) {
-  return (transactions ?? []).filter(
-    (t) => t.accountId === cardId && t.date >= period.start && t.date <= period.end,
-  )
+  const expectedId = invoiceIdFor(cardId, period.periodKey)
+  return (transactions ?? []).filter((t) => t.invoiceId === expectedId)
 }
 
 function signedInvoiceAmount(tx) {

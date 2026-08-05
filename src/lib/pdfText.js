@@ -3,6 +3,11 @@ import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
 
+// Reexportado pra quem chama extractPdfLines conseguir distinguir "PDF pede
+// senha" de "senha errada" no catch (pdfjs lança PasswordException com esse
+// code, mas não exporta a classe em si — só dá pra checar err.name/err.code).
+export const PDF_PASSWORD_RESPONSES = pdfjsLib.PasswordResponses
+
 // Junta os pedaços de texto de uma linha, decidindo se cada par vizinho
 // precisa de um espaço entre eles com base no espaço horizontal real entre
 // eles (alguns PDFs quebram uma palavra em vários pedaços por causa de
@@ -54,9 +59,9 @@ function groupItemsIntoLines(items) {
 
 // Extrai todo o texto de um PDF de fatura, como uma lista de linhas (na
 // ordem em que aparecem, página após página).
-export async function extractPdfLines(file) {
+export async function extractPdfLines(file, password) {
   const buffer = await file.arrayBuffer()
-  const doc = await pdfjsLib.getDocument({ data: buffer }).promise
+  const doc = await pdfjsLib.getDocument({ data: buffer, password }).promise
 
   const allLines = []
   for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {

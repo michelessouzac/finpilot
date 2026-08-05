@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { Field, TextInput, Select, PrimaryButton, GhostButton, Card, EmptyState } from './ui'
 import { CloseIcon, UploadIcon, RepeatIcon, CardIcon } from './icons'
 import { formatMoney, todayIso } from '../lib/constants'
-import { extractPdfLines } from '../lib/pdfText'
+import { extractPdfLines, PDF_PASSWORD_RESPONSES } from '../lib/pdfText'
+import { periodKeyForDate } from '../lib/invoices'
 import {
   parseInvoiceLines,
   parseInvoiceMetadata,
   reconcilesWithInvoiceMetadata,
+  buildInvoiceValidationIssue,
   ISSUER_DISPLAY_NAMES,
 } from '../lib/invoiceParser'
 import { extractInvoiceWithAI } from '../lib/aiInvoiceParser'
@@ -67,8 +69,17 @@ function findAccountByIssuerName(accounts, displayName) {
   )
 }
 
-function CandidateRow({ candidate, categories, onChange }) {
-  const badge = candidate.isDuplicate
+function CandidateRow({ candidate, categories, accounts, onChange }) {
+  const duplicateAccountName =
+    candidate.crossAccountDuplicate &&
+    accounts.find((a) => a.id === candidate.duplicateAccountId)?.name
+
+  const badge = candidate.crossAccountDuplicate
+    ? {
+        text: duplicateAccountName ? `já lançado em "${duplicateAccountName}"` : 'já lançado em outra conta',
+        className: 'bg-ink/10 text-gray',
+      }
+    : candidate.isDuplicate
     ? { text: 'já lançado', className: 'bg-ink/10 text-gray' }
     : candidate.installment
       ? { text: `parcela ${candidate.installment.index}/${candidate.installment.total}`, className: 'bg-rose/15 text-rose' }
@@ -183,6 +194,10 @@ function ImportInvoice({
   const [pendingBankPrompt, setPendingBankPrompt] = useState(null)
   const [manualBankName, setManualBankName] = useState('')
   const [reconcileWarning, setReconcileWarning] = useState(false)
+  const [validationIssue, setValidationIssue] = useState(null)
+  const [pendingPasswordFile, setPendingPasswordFile] = useState(null)
+  const [pdfPassword, setPdfPassword] = useState('')
+  const [passwordError, setPasswordError] = useState('')
 
   // Quando a pessoa deixa em "detectar automaticamente", acha o emissor pelo
   // texto da fatura e resolve pra uma conta já cadastrada com esse nome ou,
@@ -251,15 +266,28 @@ function ImportInvoice({
     // importar, em vez de confiar cegamente na lista.
     setReconcileWarning(!reconcilesWithInvoiceMetadata(parsed, metadata))
 
+    // Validação estruturada (banco/cartão/competência/total esperado vs
+    // calculado/diferença), pra registro — usa `refMonth` como competência
+    // porque é a declaração explícita de qual fatura é essa, feita antes de
+    // ler o PDF.
+    const issue = buildInvoiceValidationIssue({
+      card: accounts.find((a) => a.id === resolvedAccountId),
+      periodKey: refMonth,
+      parsedCandidates: parsed,
+      metadata,
+    })
+    setValidationIssue(issue)
+    if (issue) console.error('[invoice-validation]', issue)
+
     const matched = matchAgainstExisting(parsed, transactions, resolvedAccountId, categories)
     setCandidates(matched)
     setStep('review')
   }
 
-  async function handleFile(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-
+  // Lê e processa um PDF já escolhido. Separado de handleFile pra poder ser
+  // chamado de novo com a senha, sem a pessoa precisar reselecionar o
+  // arquivo depois de digitar a senha.
+  async function readAndProcessFile(file, password) {
     setLoading(true)
     setLoadingLabel('Lendo o PDF...')
     setError('')
@@ -269,8 +297,13 @@ function ImportInvoice({
     setAutoDetectNote('')
     setPendingBankPrompt(null)
     setReconcileWarning(false)
+    setValidationIssue(null)
     try {
-      const lines = await extractPdfLines(file)
+      const lines = await extractPdfLines(file, password)
+      setPendingPasswordFile(null)
+      setPdfPassword('')
+      setPasswordError('')
+
       const metadata = parseInvoiceMetadata(lines)
       setCardInfo(metadata)
 
@@ -281,11 +314,37 @@ function ImportInvoice({
       }
 
       await processLines(lines, metadata, resolved.id)
-    } catch {
-      setError('Não consegui ler esse PDF. Confira se o arquivo não está protegido por senha.')
+    } catch (err) {
+      if (err?.name === 'PasswordException') {
+        setPendingPasswordFile(file)
+        setPasswordError(
+          err.code === PDF_PASSWORD_RESPONSES.INCORRECT_PASSWORD ? 'Senha incorreta, tente de novo.' : '',
+        )
+      } else {
+        setError('Não consegui ler esse PDF. Confira se o arquivo não está protegido por senha.')
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  async function handleFile(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    await readAndProcessFile(file)
+  }
+
+  // A pessoa digitou a senha do PDF (geralmente os dígitos do CPF, no caso
+  // de fatura de banco) — tenta ler o mesmo arquivo de novo com ela.
+  async function handleConfirmPassword() {
+    if (!pendingPasswordFile || !pdfPassword.trim()) return
+    await readAndProcessFile(pendingPasswordFile, pdfPassword.trim())
+  }
+
+  function handleCancelPassword() {
+    setPendingPasswordFile(null)
+    setPdfPassword('')
+    setPasswordError('')
   }
 
   // A pessoa digitou o nome do banco porque não deu pra detectar sozinho —
@@ -326,9 +385,28 @@ function ImportInvoice({
     setCandidates(candidates.map((c, i) => (i === index ? next : c)))
   }
 
+  // Junto com os lançamentos, informa em qual fatura (periodKey, calculado
+  // pelo fechamento do cartão) eles caem — assim quem chama sabe pra qual
+  // fatura navegar depois de importar, em vez de deixar a tela de cartão no
+  // período padrão (a fatura em aberto, que pode não ser a que acabou de
+  // ser importada). Usa o período mais comum entre os itens (em vez do
+  // primeiro) porque um lançamento perto da borda do fechamento pode cair
+  // isolado num período vizinho.
   function handleConfirmImport() {
     const toImport = candidates.filter((c) => c.include)
-    onImport(accountId, toImport)
+    const card = accounts.find((a) => a.id === accountId)
+
+    let periodKey = null
+    if (card && toImport.length > 0) {
+      const counts = new Map()
+      for (const item of toImport) {
+        const key = periodKeyForDate(item.date, card)
+        counts.set(key, (counts.get(key) ?? 0) + 1)
+      }
+      periodKey = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+    }
+
+    onImport(accountId, toImport, periodKey)
   }
 
   const includedCount = candidates.filter((c) => c.include).length
@@ -370,7 +448,36 @@ function ImportInvoice({
         </div>
       )}
 
-      {step === 'upload' && pendingBankPrompt && (
+      {step === 'upload' && pendingPasswordFile && (
+        <div className="flex flex-col gap-4">
+          <p className="rounded-2xl bg-ink/5 px-4 py-3 text-sm text-ink">
+            Esse PDF está protegido por senha. Muitos bancos usam os dígitos do CPF do titular — digite a senha
+            pra continuar.
+          </p>
+          <Field label="Senha do PDF">
+            <TextInput
+              type="password"
+              value={pdfPassword}
+              onChange={(e) => setPdfPassword(e.target.value)}
+              placeholder="Senha da fatura"
+              autoFocus
+            />
+          </Field>
+          {passwordError && <p className="text-xs font-medium text-rose">{passwordError}</p>}
+          <PrimaryButton
+            type="button"
+            onClick={handleConfirmPassword}
+            disabled={!pdfPassword.trim() || loading}
+          >
+            {loading ? loadingLabel : 'Continuar'}
+          </PrimaryButton>
+          <GhostButton type="button" onClick={handleCancelPassword}>
+            Escolher outro arquivo
+          </GhostButton>
+        </div>
+      )}
+
+      {step === 'upload' && !pendingPasswordFile && pendingBankPrompt && (
         <div className="flex flex-col gap-4">
           <p className="rounded-2xl bg-ink/5 px-4 py-3 text-sm text-ink">
             Não conseguimos identificar o banco emissor automaticamente nesse PDF. Qual o nome desse cartão? Vamos
@@ -397,7 +504,7 @@ function ImportInvoice({
         </div>
       )}
 
-      {step === 'upload' && !pendingBankPrompt && (
+      {step === 'upload' && !pendingPasswordFile && !pendingBankPrompt && (
         <div className="flex flex-col gap-4">
           <label className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-ink/15 px-6 py-10 text-center hover:border-coral/50">
             <UploadIcon className="text-coral" width={28} height={28} />
@@ -443,6 +550,14 @@ function ImportInvoice({
               O total dos lançamentos que reconhecemos não bate com o total impresso nessa fatura — pode ter
               algum lançamento que não conseguimos ler do PDF. Confira com atenção antes de importar, e
               compare com o total da fatura de verdade.
+              {validationIssue && (
+                <>
+                  <br />
+                  Esperado (impresso na fatura): {formatMoney(validationIssue.totalEsperado)} · Reconhecido:{' '}
+                  {formatMoney(validationIssue.totalCalculado)} · Diferença:{' '}
+                  {formatMoney(validationIssue.diferenca)}
+                </>
+              )}
             </p>
           )}
 
@@ -473,6 +588,7 @@ function ImportInvoice({
                     key={`${candidate.date}-${candidate.rawDescription}-${index}`}
                     candidate={candidate}
                     categories={categories}
+                    accounts={accounts}
                     onChange={(next) => updateCandidate(index, next)}
                   />
                 ))}

@@ -7,16 +7,25 @@ function buildMatchKey(accountId, normalizedDescription, installment) {
     : `${accountId}::${normalizedDescription}`
 }
 
+// Descrição+parcela sem o accountId — usado pra achar duplicata entre
+// contas diferentes (ex: fatura reimportada depois que o cartão foi
+// apagado e recriado, ou importada sob o cartão errado por engano).
+function matchKeySuffix(matchKey) {
+  const separatorIndex = matchKey.indexOf('::')
+  return separatorIndex === -1 ? matchKey : matchKey.slice(separatorIndex + 2)
+}
+
 function withinTolerance(a, b, tolerance = 0.15) {
   if (a === 0 || b === 0) return a === b
   return Math.abs(a - b) / Math.max(a, b) <= tolerance
 }
 
-// Compara os candidatos extraídos do PDF com as transações já lançadas
-// (dessa mesma conta) pra decidir, pra cada um: se já foi importado antes
-// (duplicata exata), se é a continuação de uma assinatura/parcela já
-// reconhecida (herda nome, grupo e categoria já corrigida), ou se é algo
-// novo (aí a categoria é só um palpite, pra pessoa corrigir depois).
+// Compara os candidatos extraídos do PDF com as transações já lançadas pra
+// decidir, pra cada um: se já foi importado antes (duplicata exata, na
+// mesma conta ou em outra — ver `crossAccountDuplicate` abaixo), se é a
+// continuação de uma assinatura/parcela já reconhecida (herda nome, grupo e
+// categoria já corrigida), ou se é algo novo (aí a categoria é só um
+// palpite, pra pessoa corrigir depois).
 export function matchAgainstExisting(candidates, existingTransactions, accountId, categories = []) {
   const sameAccount = existingTransactions.filter((t) => t.accountId === accountId)
 
@@ -36,6 +45,35 @@ export function matchAgainstExisting(candidates, existingTransactions, accountId
         include: false,
         category: exactDuplicate.category,
         recurring: Boolean(exactDuplicate.recurring),
+      }
+    }
+
+    // Mesma descrição+parcela+data+valor, só que gravada sob OUTRA conta —
+    // sinal de que essa fatura já foi importada antes sob um cartão que foi
+    // apagado (ou recriado) e a checagem por matchKey (que embute o
+    // accountId) não teria como pegar sozinha. Trata como duplicata também,
+    // mas guarda qual foi a outra conta pra avisar a pessoa com clareza.
+    const candidateSuffix = matchKeySuffix(matchKey)
+    const crossAccountDuplicate = existingTransactions.find(
+      (t) =>
+        t.accountId !== accountId &&
+        t.matchKey &&
+        matchKeySuffix(t.matchKey) === candidateSuffix &&
+        t.date === candidate.date &&
+        Number(t.amount) === candidate.amount,
+    )
+
+    if (crossAccountDuplicate) {
+      return {
+        ...candidate,
+        matchKey,
+        groupId: generateId(),
+        isDuplicate: true,
+        crossAccountDuplicate: true,
+        duplicateAccountId: crossAccountDuplicate.accountId,
+        include: false,
+        category: crossAccountDuplicate.category,
+        recurring: Boolean(crossAccountDuplicate.recurring),
       }
     }
 
