@@ -13,7 +13,6 @@ import Insights from './components/Insights.jsx'
 import BillForm from './components/BillForm.jsx'
 import BillList from './components/BillList.jsx'
 import OpenInvoicesSummary from './components/OpenInvoicesSummary.jsx'
-import ConnectBankScreen from './components/ConnectBankScreen.jsx'
 import NotificationsPanel from './components/NotificationsPanel.jsx'
 import MoreMenu from './components/MoreMenu.jsx'
 import ProfileScreen from './components/ProfileScreen.jsx'
@@ -70,7 +69,6 @@ import {
   generateId,
 } from './lib/storage.js'
 import { hasLocalBackupData, readLocalBackup, clearLocalBackup } from './lib/localBackup.js'
-import { loadOpenFinanceItems } from './lib/openFinance.js'
 
 const TABS = [
   {
@@ -178,7 +176,6 @@ function AppContent({ session }) {
   const [bills, setBills] = useState([])
   const [billPayments, setBillPayments] = useState([])
   const [dismissedNotifications, setDismissedNotifications] = useState(new Set())
-  const [openFinanceItems, setOpenFinanceItems] = useState([])
 
   // Busca os dados do Supabase assim que a pessoa loga. Se o banco ainda
   // estiver vazio e houver dados de teste salvos no navegador (de antes da
@@ -196,7 +193,6 @@ function AppContent({ session }) {
         billsData,
         billPaymentsData,
         dismissedData,
-        openFinanceItemsData,
       ] = await Promise.all([
         loadAccounts(),
         loadTransactions(),
@@ -205,7 +201,6 @@ function AppContent({ session }) {
         loadBills(),
         loadBillPayments(),
         loadDismissedNotifications(),
-        loadOpenFinanceItems(),
       ])
 
       if (cancelled) return
@@ -230,7 +225,6 @@ function AppContent({ session }) {
       setBills(billsData)
       setBillPayments(billPaymentsData)
       setDismissedNotifications(new Set(dismissedData))
-      setOpenFinanceItems(openFinanceItemsData)
       setDataLoaded(true)
     }
 
@@ -266,7 +260,6 @@ function AppContent({ session }) {
   const [showTxForm, setShowTxForm] = useState(false)
   const [showGoalForm, setShowGoalForm] = useState(false)
   const [showBillForm, setShowBillForm] = useState(false)
-  const [showConnectBank, setShowConnectBank] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [highlightBillKey, setHighlightBillKey] = useState(null)
@@ -339,10 +332,10 @@ function AppContent({ session }) {
   // deixa o topo do form (nome, título) escondido acima da área visível —
   // parece que o campo sumiu, mas só está fora da rolagem.
   useEffect(() => {
-    if (showAccountForm || showTxForm || showGoalForm || showBillForm || showConnectBank) {
+    if (showAccountForm || showTxForm || showGoalForm || showBillForm) {
       mainRef.current?.scrollTo({ top: 0 })
     }
-  }, [showAccountForm, showTxForm, showGoalForm, showBillForm, showConnectBank])
+  }, [showAccountForm, showTxForm, showGoalForm, showBillForm])
 
   // O destaque vindo de uma notificação some sozinho depois de um tempo,
   // pra não ficar marcado pra sempre depois que a pessoa já viu o card.
@@ -391,20 +384,6 @@ function AppContent({ session }) {
   function handleDeleteAccount(id) {
     if (!confirm('Apagar essa conta? Os lançamentos ligados a ela vão continuar na lista.')) return
     setAccounts(accounts.filter((a) => a.id !== id))
-  }
-
-  // A sincronização do Open Finance grava contas/transações direto no
-  // Supabase (via Edge Function, com a chave de serviço) — recarrega tudo
-  // aqui pra esse conteúdo aparecer sem precisar dar refresh na página.
-  async function refreshAfterOpenFinanceSync() {
-    const [accountsData, transactionsData, openFinanceItemsData] = await Promise.all([
-      loadAccounts(),
-      loadTransactions(),
-      loadOpenFinanceItems(),
-    ])
-    setAccounts(accountsData)
-    setTransactions(transactionsData)
-    setOpenFinanceItems(openFinanceItemsData)
   }
 
   function handleSaveTx(data) {
@@ -780,21 +759,15 @@ function AppContent({ session }) {
 
         {tab === 'contas' && (
           <>
-            {!showAccountForm && !showConnectBank && (
-              <div className="flex gap-3">
-                <PrimaryButton
-                  className="flex-1"
-                  onClick={() => {
-                    setEditingAccount(null)
-                    setShowAccountForm(true)
-                  }}
-                >
-                  <PlusIcon /> Nova conta
-                </PrimaryButton>
-                <GhostButton className="flex-1" onClick={() => setShowConnectBank(true)}>
-                  <BankIcon width={18} height={18} /> Conectar banco
-                </GhostButton>
-              </div>
+            {!showAccountForm && (
+              <PrimaryButton
+                onClick={() => {
+                  setEditingAccount(null)
+                  setShowAccountForm(true)
+                }}
+              >
+                <PlusIcon /> Nova conta
+              </PrimaryButton>
             )}
 
             {showAccountForm && (
@@ -806,14 +779,6 @@ function AppContent({ session }) {
                   setShowAccountForm(false)
                   setEditingAccount(null)
                 }}
-              />
-            )}
-
-            {showConnectBank && (
-              <ConnectBankScreen
-                items={openFinanceItems}
-                onClose={() => setShowConnectBank(false)}
-                onConnected={refreshAfterOpenFinanceSync}
               />
             )}
 

@@ -14,28 +14,20 @@ async function loadJsonTable(table) {
 }
 
 async function saveJsonTable(table, userId, items) {
-  const { data: existing, error: selectError } = await supabase.from(table).select('id, data')
+  const { data: existing, error: selectError } = await supabase.from(table).select('id')
   if (selectError) throw selectError
 
-  // Linhas que vieram do Open Finance são escritas só pela Edge Function de
-  // sincronização, nunca por aqui — se o array local (a aba pode ter sido
-  // carregada antes da última sincronização) não reflete elas ainda, esse
-  // "salvar" não pode apagar nem sobrescrever o que acabou de ser gravado.
-  const managedExternally = new Set(
-    (existing ?? []).filter((row) => row.data?.source === 'open_finance').map((row) => row.id),
-  )
   const existingIds = new Set((existing ?? []).map((row) => row.id))
   const currentIds = new Set(items.map((item) => item.id))
-  const toDelete = [...existingIds].filter((id) => !currentIds.has(id) && !managedExternally.has(id))
+  const toDelete = [...existingIds].filter((id) => !currentIds.has(id))
 
   if (toDelete.length > 0) {
     const { error } = await supabase.from(table).delete().in('id', toDelete)
     if (error) throw error
   }
 
-  const toUpsert = items.filter((item) => !managedExternally.has(item.id))
-  if (toUpsert.length > 0) {
-    const rows = toUpsert.map(({ id, ...rest }) => ({ id, user_id: userId, data: rest }))
+  if (items.length > 0) {
+    const rows = items.map(({ id, ...rest }) => ({ id, user_id: userId, data: rest }))
     const { error } = await supabase.from(table).upsert(rows)
     if (error) throw error
   }
