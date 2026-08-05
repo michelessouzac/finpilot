@@ -10,6 +10,7 @@ import {
   computeAvailableBalance,
   computeInvestedAmount,
   computeGoalsReserved,
+  computePocketsReserved,
 } from '../lib/dashboard'
 import { overspendAlertInsight, monthComparisonInsight } from '../lib/insights'
 
@@ -141,27 +142,31 @@ function ProjectionChart({ points }) {
 function availabilityNote({ reserved, invested }) {
   if (reserved <= 0 && invested <= 0) return null
   const apart = reserved + invested
-  return `${formatMoney(apart)} em investimentos e gatinhos não entram nesse valor.`
+  return `${formatMoney(apart)} em investimentos, gatinhos e saldo separado não entram nesse valor.`
 }
 
 function Dashboard({
   accounts,
   transactions,
   goals,
+  pockets,
   notifications = [],
   onNotificationClick,
 }) {
   const summary = useMemo(() => computeMonthSummary(accounts, transactions), [accounts, transactions])
   const projection = useMemo(() => computeProjection(accounts, transactions, 30), [accounts, transactions])
   const available = useMemo(
-    () => computeAvailableBalance(accounts, transactions, goals),
-    [accounts, transactions, goals],
+    () => computeAvailableBalance(accounts, transactions, goals, pockets),
+    [accounts, transactions, goals, pockets],
   )
   const invested = useMemo(
     () => computeInvestedAmount(accounts, transactions),
     [accounts, transactions],
   )
-  const reserved = useMemo(() => computeGoalsReserved(goals), [goals])
+  const reserved = useMemo(
+    () => computeGoalsReserved(goals) + computePocketsReserved(pockets),
+    [goals, pockets],
+  )
   const note = availabilityNote({ reserved, invested })
   const overspendAlert = useMemo(() => overspendAlertInsight(transactions), [transactions])
   const monthComparison = useMemo(() => monthComparisonInsight(transactions), [transactions])

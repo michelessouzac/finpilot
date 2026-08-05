@@ -52,13 +52,22 @@ export function computeGoalsReserved(goals) {
   return (goals ?? []).reduce((sum, g) => sum + computeSaved(g), 0)
 }
 
+// Saldo separado usa a mesma mecânica das metas (movements guardados/retirados
+// a qualquer momento), só que sem valor alvo nem prazo — por isso reaproveita
+// computeSaved em vez de duplicar a soma.
+export function computePocketsReserved(pockets) {
+  return (pockets ?? []).reduce((sum, p) => sum + computeSaved(p), 0)
+}
+
 // Dinheiro que a pessoa realmente pode gastar agora: tira do saldo total o
-// que está investido e o que já foi guardado nos gatinhos (metas).
-export function computeAvailableBalance(accounts, transactions, goals) {
+// que está investido, o que já foi guardado nos gatinhos (metas) e o que está
+// em saldo separado.
+export function computeAvailableBalance(accounts, transactions, goals, pockets) {
   return (
     computeBalance(accounts, transactions) -
     computeInvestedAmount(accounts, transactions) -
-    computeGoalsReserved(goals)
+    computeGoalsReserved(goals) -
+    computePocketsReserved(pockets)
   )
 }
 

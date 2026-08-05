@@ -42,6 +42,9 @@ export const saveTransactions = (userId, items) => saveJsonTable('transactions',
 export const loadGoals = () => loadJsonTable('goals')
 export const saveGoals = (userId, items) => saveJsonTable('goals', userId, items)
 
+export const loadPockets = () => loadJsonTable('pockets')
+export const savePockets = (userId, items) => saveJsonTable('pockets', userId, items)
+
 export const loadBills = () => loadJsonTable('bills')
 export const saveBills = (userId, items) => saveJsonTable('bills', userId, items)
 

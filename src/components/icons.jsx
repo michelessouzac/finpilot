@@ -161,6 +161,15 @@ export function CatIcon(props) {
   )
 }
 
+export function PocketIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" width="22" height="22" {...base} {...props}>
+      <path d="M4 9a8 8 0 0 1 16 0v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" />
+      <path d="M9 9v2a3 3 0 0 0 6 0V9" />
+    </svg>
+  )
+}
+
 export function MinusIcon(props) {
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" {...base} strokeWidth={2.4} {...props}>

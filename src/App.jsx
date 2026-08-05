@@ -8,6 +8,8 @@ import Dashboard from './components/Dashboard.jsx'
 import Inbox from './components/Inbox.jsx'
 import GoalForm from './components/GoalForm.jsx'
 import GoalList from './components/GoalList.jsx'
+import PocketForm from './components/PocketForm.jsx'
+import PocketList from './components/PocketList.jsx'
 import SimuladorScreen from './components/SimuladorScreen.jsx'
 import Insights from './components/Insights.jsx'
 import BillForm from './components/BillForm.jsx'
@@ -60,6 +62,8 @@ import {
   saveCategories,
   loadGoals,
   saveGoals,
+  loadPockets,
+  savePockets,
   loadBills,
   saveBills,
   loadBillPayments,
@@ -111,7 +115,7 @@ const TABS = [
     label: 'Gatinhos',
     icon: CatIcon,
     mascot: CatMascotPeek,
-    subtitle: 'Suas metas de economia',
+    subtitle: 'Metas de economia e saldo separado',
   },
   {
     id: 'simulador',
@@ -173,6 +177,7 @@ function AppContent({ session }) {
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
   const [goals, setGoals] = useState([])
+  const [pockets, setPockets] = useState([])
   const [bills, setBills] = useState([])
   const [billPayments, setBillPayments] = useState([])
   const [dismissedNotifications, setDismissedNotifications] = useState(new Set())
@@ -190,6 +195,7 @@ function AppContent({ session }) {
         transactionsData,
         categoriesData,
         goalsData,
+        pocketsData,
         billsData,
         billPaymentsData,
         dismissedData,
@@ -198,6 +204,7 @@ function AppContent({ session }) {
         loadTransactions(),
         loadCategories(),
         loadGoals(),
+        loadPockets(),
         loadBills(),
         loadBillPayments(),
         loadDismissedNotifications(),
@@ -222,6 +229,7 @@ function AppContent({ session }) {
       setAccounts(accountsData)
       setTransactions(transactionsData)
       setGoals(goalsData)
+      setPockets(pocketsData)
       setBills(billsData)
       setBillPayments(billPaymentsData)
       setDismissedNotifications(new Set(dismissedData))
@@ -239,6 +247,7 @@ function AppContent({ session }) {
     setTransactions(migration.transactions)
     setCategories(withDefaultCategories(migration.categories))
     setGoals(migration.goals)
+    setPockets([])
     setBills(migration.bills)
     setBillPayments(migration.billPayments)
     setDismissedNotifications(new Set(migration.dismissedNotifications))
@@ -255,11 +264,14 @@ function AppContent({ session }) {
   const [editingAccount, setEditingAccount] = useState(null)
   const [editingTx, setEditingTx] = useState(null)
   const [editingGoal, setEditingGoal] = useState(null)
+  const [editingPocket, setEditingPocket] = useState(null)
   const [editingBill, setEditingBill] = useState(null)
   const [showAccountForm, setShowAccountForm] = useState(false)
   const [showTxForm, setShowTxForm] = useState(false)
   const [showGoalForm, setShowGoalForm] = useState(false)
+  const [showPocketForm, setShowPocketForm] = useState(false)
   const [showBillForm, setShowBillForm] = useState(false)
+  const [goalsView, setGoalsView] = useState('metas') // 'metas' | 'separado'
   const [showNotifications, setShowNotifications] = useState(false)
   const [showMoreMenu, setShowMoreMenu] = useState(false)
   const [highlightBillKey, setHighlightBillKey] = useState(null)
@@ -292,6 +304,9 @@ function AppContent({ session }) {
   useEffect(() => {
     if (dataLoaded) saveGoals(userId, goals).catch(console.error)
   }, [dataLoaded, userId, goals])
+  useEffect(() => {
+    if (dataLoaded) savePockets(userId, pockets).catch(console.error)
+  }, [dataLoaded, userId, pockets])
   useEffect(() => {
     if (dataLoaded) saveBills(userId, bills).catch(console.error)
   }, [dataLoaded, userId, bills])
@@ -332,10 +347,10 @@ function AppContent({ session }) {
   // deixa o topo do form (nome, título) escondido acima da área visível —
   // parece que o campo sumiu, mas só está fora da rolagem.
   useEffect(() => {
-    if (showAccountForm || showTxForm || showGoalForm || showBillForm) {
+    if (showAccountForm || showTxForm || showGoalForm || showPocketForm || showBillForm) {
       mainRef.current?.scrollTo({ top: 0 })
     }
-  }, [showAccountForm, showTxForm, showGoalForm, showBillForm])
+  }, [showAccountForm, showTxForm, showGoalForm, showPocketForm, showBillForm])
 
   // O destaque vindo de uma notificação some sozinho depois de um tempo,
   // pra não ficar marcado pra sempre depois que a pessoa já viu o card.
@@ -508,6 +523,37 @@ function AppContent({ session }) {
               ],
             }
           : g,
+      ),
+    )
+  }
+
+  function handleSavePocket(data) {
+    if (editingPocket) {
+      setPockets(pockets.map((p) => (p.id === editingPocket.id ? { ...p, ...data } : p)))
+    } else {
+      setPockets([...pockets, { id: generateId(), movements: [], ...data }])
+    }
+    setEditingPocket(null)
+    setShowPocketForm(false)
+  }
+
+  function handleDeletePocket(id) {
+    if (!confirm('Apagar esse saldo separado? O histórico de guardado e retirado some junto.')) return
+    setPockets(pockets.filter((p) => p.id !== id))
+  }
+
+  function handleMovePocket(pocketId, amount) {
+    setPockets(
+      pockets.map((p) =>
+        p.id === pocketId
+          ? {
+              ...p,
+              movements: [
+                ...(p.movements ?? []),
+                { id: generateId(), amount, date: todayIso() },
+              ],
+            }
+          : p,
       ),
     )
   }
@@ -750,6 +796,7 @@ function AppContent({ session }) {
             accounts={accounts}
             transactions={transactions}
             goals={goals}
+            pockets={pockets}
             bills={bills}
             billPayments={billPayments}
             notifications={notifications}
@@ -910,37 +957,96 @@ function AppContent({ session }) {
 
         {tab === 'porquinhos' && (
           <>
-            {!showGoalForm && (
-              <PrimaryButton
-                onClick={() => {
-                  setEditingGoal(null)
-                  setShowGoalForm(true)
-                }}
-              >
-                <PlusIcon /> Novo gatinho
-              </PrimaryButton>
-            )}
+            <div className="flex gap-1 rounded-full bg-ink/5 p-1">
+              {[
+                { id: 'metas', label: 'Metas' },
+                { id: 'separado', label: 'Saldo separado' },
+              ].map((view) => {
+                const active = goalsView === view.id
+                return (
+                  <button
+                    key={view.id}
+                    type="button"
+                    onClick={() => setGoalsView(view.id)}
+                    className={`flex-1 rounded-full px-3 py-2 text-sm font-medium transition active:scale-[0.98] ${
+                      active ? 'bg-surface text-ink shadow-sm' : 'text-gray hover:text-ink'
+                    }`}
+                  >
+                    {view.label}
+                  </button>
+                )
+              })}
+            </div>
 
-            {showGoalForm && (
-              <GoalForm
-                initial={editingGoal}
-                onSave={handleSaveGoal}
-                onCancel={() => {
-                  setShowGoalForm(false)
-                  setEditingGoal(null)
-                }}
-              />
-            )}
+            {goalsView === 'metas' ? (
+              <>
+                {!showGoalForm && (
+                  <PrimaryButton
+                    onClick={() => {
+                      setEditingGoal(null)
+                      setShowGoalForm(true)
+                    }}
+                  >
+                    <PlusIcon /> Novo gatinho
+                  </PrimaryButton>
+                )}
 
-            <GoalList
-              goals={goals}
-              onEdit={(goal) => {
-                setEditingGoal(goal)
-                setShowGoalForm(true)
-              }}
-              onDelete={handleDeleteGoal}
-              onMove={handleMoveGoal}
-            />
+                {showGoalForm && (
+                  <GoalForm
+                    initial={editingGoal}
+                    onSave={handleSaveGoal}
+                    onCancel={() => {
+                      setShowGoalForm(false)
+                      setEditingGoal(null)
+                    }}
+                  />
+                )}
+
+                <GoalList
+                  goals={goals}
+                  onEdit={(goal) => {
+                    setEditingGoal(goal)
+                    setShowGoalForm(true)
+                  }}
+                  onDelete={handleDeleteGoal}
+                  onMove={handleMoveGoal}
+                />
+              </>
+            ) : (
+              <>
+                {!showPocketForm && (
+                  <PrimaryButton
+                    onClick={() => {
+                      setEditingPocket(null)
+                      setShowPocketForm(true)
+                    }}
+                  >
+                    <PlusIcon /> Novo saldo separado
+                  </PrimaryButton>
+                )}
+
+                {showPocketForm && (
+                  <PocketForm
+                    initial={editingPocket}
+                    onSave={handleSavePocket}
+                    onCancel={() => {
+                      setShowPocketForm(false)
+                      setEditingPocket(null)
+                    }}
+                  />
+                )}
+
+                <PocketList
+                  pockets={pockets}
+                  onEdit={(pocket) => {
+                    setEditingPocket(pocket)
+                    setShowPocketForm(true)
+                  }}
+                  onDelete={handleDeletePocket}
+                  onMove={handleMovePocket}
+                />
+              </>
+            )}
           </>
         )}
 
