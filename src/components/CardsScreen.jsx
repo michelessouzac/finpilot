@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { formatMoney, formatDate, monthLabel } from '../lib/constants'
 import {
   listInvoicePeriods,
@@ -9,9 +9,8 @@ import {
   cardSpendingByCategory,
   cardAvailableLimit,
 } from '../lib/invoices'
-import { Card, Select, GhostButton, PrimaryButton } from './ui'
-import ImportInvoice from './ImportInvoice.jsx'
-import { ArrowDownIcon, ArrowUpIcon, UploadIcon } from './icons'
+import { Card, Select, GhostButton, EmptyState } from './ui'
+import { ArrowDownIcon, ArrowUpIcon, CardIcon } from './icons'
 
 function InvoiceItem({ tx }) {
   const isEntrada = tx.type === 'entrada'
@@ -27,19 +26,7 @@ function InvoiceItem({ tx }) {
         </div>
         <div>
           <p className="text-sm font-medium text-ink">{tx.description}</p>
-          <p className="flex flex-wrap items-center gap-1.5 text-xs text-gray">
-            {formatDate(tx.date)}
-            {tx.installment && (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-rose/15 px-1.5 py-0.5 text-rose">
-                parcela {tx.installment.index}/{tx.installment.total}
-              </span>
-            )}
-            {tx.projected && (
-              <span className="inline-flex items-center gap-0.5 rounded-full bg-ink/5 px-1.5 py-0.5">
-                prevista
-              </span>
-            )}
-          </p>
+          <p className="text-xs text-gray">{formatDate(tx.date)}</p>
         </div>
       </div>
       <span className={`text-sm font-semibold ${isEntrada ? 'text-mint' : 'text-ink'}`}>
@@ -75,19 +62,10 @@ function CardInfoSummary({ card, transactions, bills, billPayments }) {
   )
 }
 
-function CardInvoiceView({ card, transactions, categories, focusPeriodKey }) {
+function CardInvoiceView({ card, transactions, categories }) {
   const periods = useMemo(() => listInvoicePeriods(card, { pastCount: 6, futureCount: 1 }), [card])
   const currentIndex = periods.findIndex((p) => !isPeriodClosed(p))
   const [index, setIndex] = useState(currentIndex === -1 ? periods.length - 1 : currentIndex)
-
-  // Depois de importar uma fatura, pula pra ela — sem isso a tela continua
-  // mostrando a fatura em aberto por padrão, que quase nunca é a que acabou
-  // de ser importada (a fatura importada normalmente já fechou).
-  useEffect(() => {
-    if (!focusPeriodKey) return
-    const idx = periods.findIndex((p) => p.periodKey === focusPeriodKey)
-    if (idx !== -1) setIndex(idx)
-  }, [focusPeriodKey, periods])
 
   const period = periods[index]
   const items = useMemo(
@@ -177,9 +155,6 @@ function CardsScreen({
   categories,
   bills = [],
   billPayments = [],
-  onImport,
-  onUpdateCardInfo,
-  onCreateAccount,
   selectedCardId,
   onSelectCard,
 }) {
@@ -190,22 +165,17 @@ function CardsScreen({
   const isControlled = Boolean(onSelectCard)
   const selectedId = isControlled ? selectedCardId : internalSelectedId
   const setSelectedId = isControlled ? onSelectCard : setInternalSelectedId
-  const [showImport, setShowImport] = useState(cards.length === 0)
-  const [focusPeriodKey, setFocusPeriodKey] = useState(null)
-
-  function handleImport(accountId, items, periodKey) {
-    onImport(accountId, items)
-    setSelectedId(accountId)
-    setShowImport(false)
-    setFocusPeriodKey(periodKey ?? null)
-  }
-
-  // Mantém sempre a mesma estrutura de árvore (esse <div>), mesmo sem
-  // nenhum cartão cadastrado ainda — importar sozinho já cria a conta pelo
-  // banco detectado na fatura, então cards.length pode virar 1 no meio do
-  // processo. Se isso mudasse qual elemento é a raiz do retorno, o React
-  // desmontaria e remontaria o ImportInvoice, perdendo todo o progresso.
   const selectedCard = cards.find((c) => c.id === selectedId) ?? cards[0]
+
+  if (cards.length === 0) {
+    return (
+      <EmptyState
+        icon={<CardIcon className="text-coral" width={28} height={28} />}
+        title="Nenhum cartão cadastrado"
+        description='Cadastre um cartão de crédito na aba "Contas" pra acompanhar a fatura por aqui.'
+      />
+    )
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -219,41 +189,14 @@ function CardsScreen({
         </Select>
       )}
 
-      {selectedCard && (
-        <CardInfoSummary
-          card={selectedCard}
-          transactions={transactions}
-          bills={bills}
-          billPayments={billPayments}
-        />
-      )}
+      <CardInfoSummary
+        card={selectedCard}
+        transactions={transactions}
+        bills={bills}
+        billPayments={billPayments}
+      />
 
-      {!showImport && (
-        <PrimaryButton type="button" onClick={() => setShowImport(true)}>
-          <UploadIcon /> Importar fatura (PDF)
-        </PrimaryButton>
-      )}
-
-      {showImport && (
-        <ImportInvoice
-          accounts={accounts}
-          transactions={transactions}
-          categories={categories}
-          onImport={handleImport}
-          onUpdateCardInfo={onUpdateCardInfo}
-          onCreateAccount={onCreateAccount}
-          onCancel={() => setShowImport(false)}
-        />
-      )}
-
-      {selectedCard && (
-        <CardInvoiceView
-          card={selectedCard}
-          transactions={transactions}
-          categories={categories}
-          focusPeriodKey={focusPeriodKey}
-        />
-      )}
+      <CardInvoiceView card={selectedCard} transactions={transactions} categories={categories} />
     </div>
   )
 }

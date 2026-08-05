@@ -51,7 +51,6 @@ import {
   invoicePeriod,
   invoiceTotal,
   invoiceDueDate,
-  projectFutureInstallments,
   resolveInvoiceId,
   backfillInvoiceIds,
 } from './lib/invoices.js'
@@ -376,32 +375,6 @@ function AppContent({ session }) {
     setShowAccountForm(false)
   }
 
-  // Cria a conta do cartão sozinha quando a importação de fatura detecta o
-  // banco emissor e não acha (ainda) uma conta cadastrada com esse nome —
-  // evita a pessoa precisar ir em Contas cadastrar antes de poder importar.
-  function handleCreateAccount(data) {
-    const id = generateId()
-    setAccounts((prev) => [...prev, { id, ...data }])
-    return id
-  }
-
-  // A fatura importada pode trazer emissor, limite e datas de
-  // fechamento/vencimento do cartão — só grava o que o parser conseguiu
-  // achar, sem sobrescrever o que já estava cadastrado com nada.
-  function handleUpdateCardInfo(accountId, info) {
-    setAccounts(
-      accounts.map((a) => {
-        if (a.id !== accountId) return a
-        const next = { ...a }
-        if (info.totalLimit !== null) next.amount = info.totalLimit
-        if (info.closingDay !== null) next.closingDay = info.closingDay
-        if (info.dueDay !== null) next.dueDay = info.dueDay
-        if (info.issuer && !a.name) next.name = info.issuer
-        return next
-      }),
-    )
-  }
-
   // Apaga a conta junto com tudo que só existe em função dela — lançamentos
   // e faturas (bills) geradas a partir do fechamento desse cartão. Deixar
   // esses registros pra trás foi a causa de um bug real: importar a mesma
@@ -421,29 +394,21 @@ function AppContent({ session }) {
   }
 
   function handleSaveTx(data) {
-    const { applyToGroup, ...fields } = data
-    // Lançamento manual num cartão também precisa de fatura vinculada — só
-    // a importação de PDF cuidava disso antes. Recalcula sempre (não só na
-    // criação), porque editar a data ou trocar de conta pode mudar a fatura.
-    const card = accounts.find((a) => a.id === fields.accountId && a.type === 'cartao')
-    // Sempre inclui as duas chaves explicitamente (mesmo como `undefined`)
-    // pra limpar um invoiceId antigo se a edição tirar o lançamento do
-    // cartão ou trocar a data pra fora de qualquer fatura resolvível.
-    const invoiceFields = { invoiceId: undefined, periodKey: undefined, ...(card ? resolveInvoiceId(fields.date, card) : null) }
+    // Lançamento num cartão precisa de fatura vinculada. Recalcula sempre
+    // (não só na criação), porque editar a data ou trocar de conta pode
+    // mudar a fatura. Sempre inclui as duas chaves explicitamente (mesmo
+    // como `undefined`) pra limpar um invoiceId antigo se a edição tirar o
+    // lançamento do cartão ou trocar a data pra fora de qualquer fatura
+    // resolvível.
+    const card = accounts.find((a) => a.id === data.accountId && a.type === 'cartao')
+    const invoiceFields = { invoiceId: undefined, periodKey: undefined, ...(card ? resolveInvoiceId(data.date, card) : null) }
 
     if (editingTx) {
-      const groupId = editingTx.groupId
       setTransactions(
-        transactions.map((t) => {
-          if (t.id === editingTx.id) return { ...t, ...fields, ...invoiceFields }
-          if (applyToGroup && groupId && t.groupId === groupId) {
-            return { ...t, description: fields.description }
-          }
-          return t
-        }),
+        transactions.map((t) => (t.id === editingTx.id ? { ...t, ...data, ...invoiceFields } : t)),
       )
     } else {
-      setTransactions([...transactions, { id: generateId(), ...fields, ...invoiceFields }])
+      setTransactions([...transactions, { id: generateId(), ...data, ...invoiceFields }])
     }
     setEditingTx(null)
     setShowTxForm(false)
@@ -454,82 +419,8 @@ function AppContent({ session }) {
     setTransactions(transactions.filter((t) => t.id !== id))
   }
 
-  // Ao importar uma parcela (ex: "3/10"), além de lançar a parcela em si,
-  // já projeta as seguintes (4/10 até 10/10) direto pros meses futuros —
-  // assim a compra toda já aparece na fatura de cada mês seguinte, sem
-  // precisar subir fatura nova só pra parcela aparecer. Se a fatura real
-  // daquele mês futuro for importada depois, ela substitui a projeção
-  // (mesmo grupo + mesmo índice de parcela) em vez de duplicar.
-  function handleImportTransactions(accountId, items) {
-    const card = accounts.find((a) => a.id === accountId)
-
-    const imported = items.map((item) => ({
-      id: generateId(),
-      description: item.description,
-      amount: item.amount,
-      type: item.type,
-      date: item.date,
-      accountId,
-      recurring: item.recurring,
-      category: item.category || undefined,
-      source: 'pdf',
-      rawDescription: item.rawDescription,
-      matchKey: item.matchKey,
-      groupId: item.groupId,
-      installment: item.installment,
-      projected: false,
-      ...(card ? resolveInvoiceId(item.date, card) : null),
-    }))
-
-    // As parcelas futuras projetadas herdam data/instalment de
-    // `projectFutureInstallments`, mas não devem herdar o invoiceId da
-    // parcela importada agora — cada uma pertence à fatura do MÊS DELA, que
-    // ainda nem existe de verdade (só passa a ter lançamentos quando a
-    // fatura real daquele mês for importada).
-    const projectedExtras = imported.flatMap((item) =>
-      projectFutureInstallments(item).map((extra) => ({
-        ...extra,
-        id: generateId(),
-        ...(card ? (resolveInvoiceId(extra.date, card) ?? { invoiceId: undefined, periodKey: undefined }) : { invoiceId: undefined, periodKey: undefined }),
-      })),
-    )
-
-    setTransactions((prev) => {
-      const superseded = imported.filter((item) => item.groupId && item.installment)
-      const withoutStalePlaceholders = prev.filter(
-        (t) =>
-          !(
-            t.projected &&
-            superseded.some(
-              (item) => item.groupId === t.groupId && item.installment?.index === t.installment?.index,
-            )
-          ),
-      )
-      const next = [...withoutStalePlaceholders, ...imported]
-      for (const extra of projectedExtras) {
-        const alreadyThere = next.some(
-          (t) => t.groupId === extra.groupId && t.installment?.index === extra.installment?.index,
-        )
-        if (!alreadyThere) next.push(extra)
-      }
-      return next
-    })
-  }
-
-  // Categorizar um lançamento que veio de fatura (assinatura ou parcela)
-  // também categoriza as outras ocorrências do mesmo grupo — assim, corrigir
-  // uma vez ("Millium 03/10" -> "Coisas pra casa") já vale pras parcelas
-  // seguintes, sem precisar categorizar todo mês de novo.
   function handleAssignCategory(txId, categoryId) {
-    const tx = transactions.find((t) => t.id === txId)
-    const groupId = tx?.groupId
-    setTransactions(
-      transactions.map((t) => {
-        if (t.id === txId) return { ...t, category: categoryId }
-        if (groupId && t.groupId === groupId) return { ...t, category: categoryId }
-        return t
-      }),
-    )
+    setTransactions(transactions.map((t) => (t.id === txId ? { ...t, category: categoryId } : t)))
   }
 
   function handleAddCategory(category) {
@@ -888,9 +779,6 @@ function AppContent({ session }) {
             categories={categories}
             bills={bills}
             billPayments={billPayments}
-            onImport={handleImportTransactions}
-            onUpdateCardInfo={handleUpdateCardInfo}
-            onCreateAccount={handleCreateAccount}
             selectedCardId={selectedCardId}
             onSelectCard={setSelectedCardId}
           />

@@ -52,12 +52,6 @@ function TransactionList({ transactions, accounts, categories = [], onEdit, onDe
                       <RepeatIcon /> recorrente
                     </span>
                   )}
-                  {tx.installment && (
-                    <span className="inline-flex items-center gap-0.5 rounded-full bg-rose/15 px-1.5 py-0.5 text-rose">
-                      parcela {tx.installment.index}/{tx.installment.total}
-                      {tx.projected ? ' · prevista' : ''}
-                    </span>
-                  )}
                   {category ? (
                     <span className="inline-flex items-center gap-0.5 rounded-full bg-coral/15 px-1.5 py-0.5 text-coral">
                       {category.emoji} {category.label}

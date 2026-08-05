@@ -103,38 +103,6 @@ export function invoiceDueDate(card, periodKey) {
   return ymd(dueYear, dueMonth, clampDay(dueYear, dueMonth, dueDay))
 }
 
-// Soma `count` meses a uma data YYYY-MM-DD, preservando o dia (clampado ao
-// último dia válido do mês de destino) — usado pra projetar a data de cada
-// parcela futura a partir da parcela importada da fatura.
-export function addMonthsToDate(dateIso, count) {
-  const [year, month, day] = dateIso.split('-').map(Number)
-  const date = new Date(Date.UTC(year, month - 1 + count, 1))
-  const clampedDay = clampDay(date.getUTCFullYear(), date.getUTCMonth() + 1, day)
-  return ymd(date.getUTCFullYear(), date.getUTCMonth() + 1, clampedDay)
-}
-
-// A partir de uma parcela reconhecida numa fatura importada (ex: "3/10"),
-// projeta as parcelas seguintes (4/10 até 10/10) que ainda não apareceram em
-// nenhuma fatura enviada — assim a compra parcelada já aparece inteira, até
-// a última parcela, sem precisar subir fatura todo mês só pra ela surgir.
-// Cada uma nasce marcada `projected: true`; quando a fatura real daquele mês
-// é importada depois, ela substitui a projeção (ver App.jsx).
-export function projectFutureInstallments(item) {
-  const { installment } = item ?? {}
-  if (!installment || installment.index >= installment.total) return []
-
-  const projected = []
-  for (let i = installment.index + 1; i <= installment.total; i++) {
-    projected.push({
-      ...item,
-      date: addMonthsToDate(item.date, i - installment.index),
-      installment: { index: i, total: installment.total },
-      projected: true,
-    })
-  }
-  return projected
-}
-
 // Fonte da verdade de "quais transações pertencem a essa fatura": o vínculo
 // gravado (invoiceId), não mais a data recalculada contra o fechamento atual
 // do cartão — assim editar o dia de fechamento de um cartão não reembaralha

@@ -16,13 +16,11 @@ function emptyForm(accounts) {
 
 function TransactionForm({ accounts, initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial ?? emptyForm(accounts))
-  const [applyToGroup, setApplyToGroup] = useState(true)
-  const isGrouped = Boolean(initial?.groupId)
 
   function handleSubmit(e) {
     e.preventDefault()
     if (!form.description.trim() || form.amount === '' || !form.accountId) return
-    onSave({ ...form, amount: Number(form.amount), applyToGroup: isGrouped && applyToGroup })
+    onSave({ ...form, amount: Number(form.amount) })
   }
 
   return (
@@ -109,18 +107,6 @@ function TransactionForm({ accounts, initial, onSave, onCancel }) {
           />
           É recorrente (se repete todo mês)
         </label>
-
-        {isGrouped && (
-          <label className="flex items-center gap-2 text-sm font-medium text-gray">
-            <input
-              type="checkbox"
-              checked={applyToGroup}
-              onChange={(e) => setApplyToGroup(e.target.checked)}
-              className="h-4 w-4 rounded border-ink/20 accent-coral"
-            />
-            Aplicar esse nome às outras ocorrências dessa assinatura/parcela
-          </label>
-        )}
 
         <div className="flex gap-3 pt-1">
           <PrimaryButton type="submit" className="flex-1">
