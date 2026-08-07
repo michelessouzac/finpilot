@@ -8,6 +8,14 @@ export function accountTypeMeta(value) {
   return ACCOUNT_TYPES.find((t) => t.value === value) ?? ACCOUNT_TYPES[0]
 }
 
+// Arredonda pra centavos. Soma de float acumula lixo (0.1 + 0.2 dá
+// 0.30000000000000004), então duas quantias "iguais" podem nunca bater numa
+// comparação direta — o que trava qualquer código que só grava quando o valor
+// mudou de verdade.
+export function roundMoney(value) {
+  return Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100
+}
+
 export function formatMoney(value) {
   const n = Number(value) || 0
   return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })

@@ -2,8 +2,13 @@ import { useState } from 'react'
 import { Field, TextInput, Select, PrimaryButton, GhostButton, Card } from './ui'
 import CategorySelect from './CategorySelect'
 import { CloseIcon } from './icons'
-import { todayIso, formatMoney, formatDate, monthLabel } from '../lib/constants'
-import { periodKeyForDate, invoiceDueDate, installmentSchedule } from '../lib/invoices'
+import { todayIso, formatMoney, formatDate } from '../lib/constants'
+import {
+  periodKeyForDate,
+  invoiceDueDate,
+  invoiceMonthLabel,
+  installmentSchedule,
+} from '../lib/invoices'
 
 const MODES = [
   { id: 'avista', label: 'À vista' },
@@ -36,7 +41,7 @@ function Preview({ form, card }) {
     return (
       <p className="rounded-2xl bg-ink/5 px-4 py-3 text-xs text-gray">
         Vai cobrar {formatMoney(amount)} todo dia {day}, entrando em toda fatura a partir da de{' '}
-        {monthLabel(periodKey)} — até você interromper.
+        {invoiceMonthLabel(card, periodKey)} — até você interromper.
       </p>
     )
   }
@@ -51,8 +56,8 @@ function Preview({ form, card }) {
       <p className="rounded-2xl bg-ink/5 px-4 py-3 text-xs text-gray">
         Vai lançar {schedule.length} parcela{schedule.length > 1 ? 's' : ''} de{' '}
         {formatMoney(amount)} (da {current}ª à {total}ª), da fatura de{' '}
-        {monthLabel(periodKeyForDate(schedule[0].date, card))} até a de{' '}
-        {monthLabel(periodKeyForDate(last.date, card))}. Total de{' '}
+        {invoiceMonthLabel(card, periodKeyForDate(schedule[0].date, card))} até a de{' '}
+        {invoiceMonthLabel(card, periodKeyForDate(last.date, card))}. Total de{' '}
         {formatMoney(amount * schedule.length)} segurando limite.
         {current > 1 && ` As ${current - 1} primeiras não são lançadas — já caíram em faturas anteriores.`}
       </p>
@@ -62,7 +67,7 @@ function Preview({ form, card }) {
   const periodKey = periodKeyForDate(form.date, card)
   return (
     <p className="rounded-2xl bg-ink/5 px-4 py-3 text-xs text-gray">
-      Entra na fatura de {monthLabel(periodKey)}, que vence em{' '}
+      Entra na fatura de {invoiceMonthLabel(card, periodKey)}, que vence em{' '}
       {formatDate(invoiceDueDate(card, periodKey))}.
     </p>
   )

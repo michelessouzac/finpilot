@@ -1,5 +1,5 @@
-import { formatMoney, monthLabel } from '../lib/constants'
-import { currentPeriodKey, invoicePeriod, invoiceTotal } from '../lib/invoices'
+import { formatMoney } from '../lib/constants'
+import { currentPeriodKey, invoicePeriod, invoiceTotal, invoiceMonthLabel } from '../lib/invoices'
 import { Card } from './ui'
 import { CardIcon } from './icons'
 
@@ -30,7 +30,7 @@ function OpenInvoicesSummary({ accounts, transactions, subscriptions = [], onSel
           className="flex items-center justify-between rounded-xl px-1 py-0.5 text-left text-sm transition hover:bg-ink/5 active:scale-[0.99]"
         >
           <span className="text-gray underline decoration-ink/20 underline-offset-2">
-            {card.name} · {monthLabel(period.periodKey)}
+            {card.name} · {invoiceMonthLabel(card, period.periodKey)}
           </span>
           <span className="font-display font-semibold text-ink">{formatMoney(total)}</span>
         </button>

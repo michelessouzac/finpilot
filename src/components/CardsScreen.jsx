@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { formatMoney, formatDate, monthLabel, categoryMeta } from '../lib/constants'
+import { formatMoney, formatDate, categoryMeta } from '../lib/constants'
 import {
   listInvoicePeriods,
   invoiceItems,
   invoiceTotal,
   invoiceDueDate,
+  invoiceMonthLabel,
   isPeriodClosed,
   cardSpendingByCategory,
   cardAvailableLimit,
@@ -117,7 +118,9 @@ function SubscriptionsCard({ card, subscriptions, categories, onStop, onResume }
                 )}
                 {ended && (
                   <span className="inline-flex items-center rounded-full bg-rose/10 px-1.5 py-0.5 text-rose">
-                    {finished ? 'cancelada' : `última cobrança em ${monthLabel(sub.endPeriodKey)}`}
+                    {finished
+                      ? 'cancelada'
+                      : `última cobrança na fatura de ${invoiceMonthLabel(card, sub.endPeriodKey)}`}
                   </span>
                 )}
               </p>
@@ -176,7 +179,9 @@ function CardInvoiceView({ card, transactions, categories, subscriptions, onDele
           >
             ‹ Anterior
           </GhostButton>
-          <span className="text-sm font-medium text-gray">{monthLabel(period.periodKey)}</span>
+          <span className="text-sm font-medium text-gray">
+            {invoiceMonthLabel(card, period.periodKey)}
+          </span>
           <GhostButton
             type="button"
             onClick={() => setIndex(Math.min(periods.length - 1, index + 1))}
@@ -203,7 +208,8 @@ function CardInvoiceView({ card, transactions, categories, subscriptions, onDele
 
         {prevTotal !== null && (
           <p className="text-center text-xs text-gray">
-            Fatura anterior ({monthLabel(prevPeriod.periodKey)}): {formatMoney(prevTotal)}
+            Fatura anterior ({invoiceMonthLabel(card, prevPeriod.periodKey)}):{' '}
+            {formatMoney(prevTotal)}
           </p>
         )}
       </Card>

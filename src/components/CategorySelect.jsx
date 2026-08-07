@@ -2,6 +2,7 @@ import { useId, useState } from 'react'
 import { Select, TextInput } from './ui'
 import { PlusIcon, CheckIcon, CloseIcon } from './icons'
 import { slugify } from '../lib/constants'
+import { emojiForLabel } from '../lib/emoji'
 
 // Seletor de categoria com um "+" do lado pra criar uma categoria na hora,
 // sem sair do formulário. Antes só dava pra criar categoria na Caixa de
@@ -21,7 +22,7 @@ function CategorySelect({ categories = [], value, onChange, onAddCategory, label
     // Categoria repetida (mesmo nome, ou nome que vira o mesmo slug) só é
     // selecionada, não duplicada na lista.
     if (!categories.some((c) => c.id === id)) {
-      onAddCategory({ id, label: trimmed, emoji: '🏷️' })
+      onAddCategory({ id, label: trimmed, emoji: emojiForLabel(trimmed) })
     }
     onChange(id)
     setNewLabel('')
@@ -41,6 +42,13 @@ function CategorySelect({ categories = [], value, onChange, onAddCategory, label
 
       {creating ? (
         <div className="flex items-stretch gap-2">
+          {/* Prévia do emoji escolhido automaticamente pelo nome digitado. */}
+          <span
+            aria-hidden="true"
+            className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-ink/5 px-3 text-xl leading-none"
+          >
+            {emojiForLabel(newLabel)}
+          </span>
           <div className="min-w-0 flex-1">
             <TextInput
               id={fieldId}

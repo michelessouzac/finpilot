@@ -35,8 +35,9 @@ import {
   MenuIcon,
   UserIcon,
 } from './components/icons.jsx'
-import { DEFAULT_CATEGORIES, todayIso } from './lib/constants.js'
-import { monthKeyOffset, currentMonthKey } from './lib/bills.js'
+import { DEFAULT_CATEGORIES, todayIso, roundMoney } from './lib/constants.js'
+import { upgradeCategoryEmojis } from './lib/emoji.js'
+import { monthKeyOffset, currentMonthKey, findPayment } from './lib/bills.js'
 import { buildNotifications } from './lib/notifications.js'
 import {
   registerServiceWorker,
@@ -53,6 +54,8 @@ import {
   invoiceDueDate,
   resolveInvoiceId,
   backfillInvoiceIds,
+  backfillPurchaseCategories,
+  applyCategoryToPurchase,
   installmentSchedule,
 } from './lib/invoices.js'
 import {
@@ -167,7 +170,11 @@ function App() {
 }
 
 function withDefaultCategories(stored) {
-  const base = stored.length ? stored : DEFAULT_CATEGORIES
+  // `upgradeCategoryEmojis` conserta as categorias criadas antes do emoji
+  // automático existir, que nasceram todas com o 🏷️ genérico. O efeito que
+  // salva as categorias roda logo depois do carregamento, então a correção
+  // fica gravada sozinha.
+  const base = stored.length ? upgradeCategoryEmojis(stored) : DEFAULT_CATEGORIES
   const diversos = DEFAULT_CATEGORIES.find((c) => c.id === 'diversos')
   return base.some((c) => c.id === 'diversos') ? base : [...base, diversos]
 }
@@ -238,7 +245,7 @@ function AppContent({ session }) {
       // tinham esse vínculo (dados de antes desse campo existir) — roda a
       // cada carregamento, mas é idempotente: transação já vinculada nunca é
       // recalculada (ver comentário em backfillInvoiceIds).
-      setTransactions(backfillInvoiceIds(transactionsData, accountsData))
+      setTransactions(backfillPurchaseCategories(backfillInvoiceIds(transactionsData, accountsData)))
       setGoals(goalsData)
       setPockets(pocketsData)
       setBills(billsData)
@@ -256,7 +263,9 @@ function AppContent({ session }) {
 
   function handleMigrate() {
     setAccounts(migration.accounts)
-    setTransactions(backfillInvoiceIds(migration.transactions, migration.accounts))
+    setTransactions(
+      backfillPurchaseCategories(backfillInvoiceIds(migration.transactions, migration.accounts)),
+    )
     setCategories(withDefaultCategories(migration.categories))
     setGoals(migration.goals)
     setPockets([])
@@ -415,8 +424,16 @@ function AppContent({ session }) {
     const invoiceFields = { invoiceId: undefined, periodKey: undefined, ...(card ? resolveInvoiceId(data.date, card) : null) }
 
     if (editingTx) {
+      // Trocar a categoria de uma parcela vale pra compra inteira. Os outros
+      // campos (valor, data, descrição) continuam valendo só pra parcela
+      // editada — cada uma tem seu próprio valor e vencimento.
+      const categoryChanged = data.category !== editingTx.category
       setTransactions(
-        transactions.map((t) => (t.id === editingTx.id ? { ...t, ...data, ...invoiceFields } : t)),
+        transactions.map((t) => {
+          if (t.id === editingTx.id) return { ...t, ...data, ...invoiceFields }
+          const samePurchase = editingTx.purchaseId && t.purchaseId === editingTx.purchaseId
+          return categoryChanged && samePurchase ? { ...t, category: data.category } : t
+        }),
       )
     } else {
       setTransactions([...transactions, { id: generateId(), ...data, ...invoiceFields }])
@@ -531,8 +548,10 @@ function AppContent({ session }) {
     )
   }
 
+  // Categorizar uma parcela categoriza a compra inteira — ver
+  // `applyCategoryToPurchase` em lib/invoices.js.
   function handleAssignCategory(txId, categoryId) {
-    setTransactions(transactions.map((t) => (t.id === txId ? { ...t, category: categoryId } : t)))
+    setTransactions(applyCategoryToPurchase(transactions, txId, categoryId))
   }
 
   function handleAddCategory(category) {
@@ -698,6 +717,12 @@ function AppContent({ session }) {
   // Confere as últimas 12 faturas fechadas (não só a mais recente) pra não
   // deixar fatura antiga de fora — ex: parcelas importadas de fatura velha,
   // ou meses em que a pessoa não abriu o app na virada do mês.
+  //
+  // O valor é reconferido a cada passada, não só na criação. Antes ele era uma
+  // foto do instante em que a conta nascia: quem cadastrava as compras da
+  // fatura depois (importar o extrato, lançar as assinaturas) ficava com uma
+  // conta a pagar congelada num total errado, sem nenhum aviso. Fatura já paga
+  // nunca é mexida — ali o valor virou histórico.
   useEffect(() => {
     const cardsWithBilling = accounts.filter(
       (a) => a.type === 'cartao' && a.closingDay && a.dueDay && a.paymentAccountId,
@@ -706,6 +731,7 @@ function AppContent({ session }) {
 
     const today = todayIso()
     const newBills = []
+    const correctedAmounts = new Map()
 
     for (const card of cardsWithBilling) {
       const openPeriodKey = periodKeyForDate(today, card)
@@ -713,13 +739,23 @@ function AppContent({ session }) {
       for (let offset = 1; offset <= 12; offset++) {
         const closedPeriodKey = monthKeyOffset(openPeriodKey, -offset)
         const period = invoicePeriod(card, closedPeriodKey)
-        const total = invoiceTotal(transactions, card.id, period, cardSubscriptions)
+        // Arredondar aqui é o que impede um laço infinito: o total sai de uma
+        // soma de floats, então sem isso o valor recalculado quase nunca seria
+        // exatamente igual ao gravado e o efeito regravaria a conta pra sempre.
+        const total = roundMoney(invoiceTotal(transactions, card.id, period, cardSubscriptions))
         if (total <= 0) continue
 
-        const alreadyExists = bills.some(
+        const existing = bills.find(
           (b) => b.cardId === card.id && b.periodKey === closedPeriodKey,
         )
-        if (alreadyExists) continue
+
+        if (existing) {
+          const paid = findPayment(billPayments, existing.id, existing.dueDate?.slice(0, 7))
+          if (!paid && roundMoney(existing.amount) !== total) {
+            correctedAmounts.set(existing.id, total)
+          }
+          continue
+        }
 
         newBills.push({
           id: generateId(),
@@ -738,8 +774,15 @@ function AppContent({ session }) {
       }
     }
 
+    if (correctedAmounts.size > 0) {
+      setBills((prev) =>
+        prev.map((b) =>
+          correctedAmounts.has(b.id) ? { ...b, amount: correctedAmounts.get(b.id) } : b,
+        ),
+      )
+    }
     if (newBills.length > 0) setBills((prev) => [...prev, ...newBills])
-  }, [accounts, transactions, bills, cardSubscriptions])
+  }, [accounts, transactions, bills, billPayments, cardSubscriptions])
 
   // Compras no cartão já aparecem detalhadas na fatura, em Cartões — aqui em
   // Lançamentos só cabe o saldo total dela (que chega como a conta "Fatura

@@ -1,4 +1,4 @@
-import { todayIso, categoryMeta } from './constants'
+import { todayIso, categoryMeta, monthLabel } from './constants'
 
 function pad2(n) {
   return String(n).padStart(2, '0')
@@ -88,6 +88,43 @@ export function backfillInvoiceIds(transactions, accounts) {
   })
 }
 
+// Todas as parcelas de uma compra pertencem à mesma categoria — é uma compra
+// só, dividida no tempo. Quem categoriza pela Caixa de entrada só vê a parcela
+// do mês corrente (as outras estão em faturas futuras), então as seguintes
+// ficavam sem categoria e a mesma compra aparecia dividida entre "Educação" e
+// "sem categoria" ao longo do ano.
+//
+// Migração auto-aplicada, e conservadora de propósito: só preenche parcela
+// vazia, nunca sobrescreve uma categoria já escolhida. Se as parcelas
+// discordarem entre si, vale a primeira categorizada.
+export function backfillPurchaseCategories(transactions) {
+  const categoryByPurchase = new Map()
+  for (const t of transactions ?? []) {
+    if (t.purchaseId && t.category && !categoryByPurchase.has(t.purchaseId)) {
+      categoryByPurchase.set(t.purchaseId, t.category)
+    }
+  }
+  if (categoryByPurchase.size === 0) return transactions ?? []
+
+  return (transactions ?? []).map((t) => {
+    if (!t.purchaseId || t.category) return t
+    const category = categoryByPurchase.get(t.purchaseId)
+    return category ? { ...t, category } : t
+  })
+}
+
+// Aplica uma categoria ao lançamento e, se ele for parcela, à compra inteira.
+// Compra à vista (sem `purchaseId`) mexe só nela mesma.
+export function applyCategoryToPurchase(transactions, targetId, category) {
+  const target = (transactions ?? []).find((t) => t.id === targetId)
+  if (!target) return transactions ?? []
+
+  return transactions.map((t) => {
+    const samePurchase = target.purchaseId && t.purchaseId === target.purchaseId
+    return t.id === targetId || samePurchase ? { ...t, category } : t
+  })
+}
+
 // Soma meses a uma data YYYY-MM-DD preservando o dia (clampado ao último dia
 // válido do mês de destino) — mesma regra do `addMonths` das contas
 // parceladas em lib/bills.js.
@@ -127,6 +164,19 @@ export function invoiceDueDate(card, periodKey) {
   const dueYear = dueDate.getUTCFullYear()
   const dueMonth = dueDate.getUTCMonth() + 1
   return ymd(dueYear, dueMonth, clampDay(dueYear, dueMonth, dueDay))
+}
+
+// Como a fatura é chamada pra quem usa: pelo mês em que ela VENCE, não pelo
+// mês em que fecha — é a convenção dos apps de banco ("a fatura de agosto" é
+// a que fechou em 31/07 e vence em 07/08). O `periodKey` segue sendo a
+// competência interna (mês de fechamento), usada pra vincular transações;
+// só o rótulo muda, então nada de dado gravado depende disso.
+export function invoiceMonthKey(card, periodKey) {
+  return invoiceDueDate(card, periodKey).slice(0, 7)
+}
+
+export function invoiceMonthLabel(card, periodKey) {
+  return monthLabel(invoiceMonthKey(card, periodKey))
 }
 
 // Fonte da verdade de "quais transações pertencem a essa fatura": o vínculo

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { formatMoney, formatDate, categoryMeta, monthLabel, slugify } from '../lib/constants'
+import { emojiForLabel } from '../lib/emoji'
 import { uncategorizedInsight, topCategoryInsight } from '../lib/insights'
 import { Card, EmptyState, Field, Select, TextInput } from './ui'
 import InsightNote from './InsightNote'
@@ -47,6 +48,13 @@ function CategoryPicker({ categories, activeId, onPick, onAddCategory, onClose }
         })}
       </div>
       <form className="flex gap-2" onSubmit={handleAdd}>
+        {/* Prévia do emoji escolhido automaticamente pelo nome digitado. */}
+        <span
+          aria-hidden="true"
+          className="inline-flex shrink-0 items-center justify-center rounded-2xl bg-surface px-3 text-xl leading-none"
+        >
+          {emojiForLabel(newLabel)}
+        </span>
         <TextInput
           value={newLabel}
           onChange={(e) => setNewLabel(e.target.value)}
@@ -251,7 +259,7 @@ function Inbox({ transactions, accounts, categories, onAssignCategory, onAddCate
     const id = slugify(label)
     if (!id) return
     if (!categories.some((c) => c.id === id)) {
-      onAddCategory({ id, label, emoji: '🏷️' })
+      onAddCategory({ id, label, emoji: emojiForLabel(label) })
     }
     if (txId) onAssignCategory(txId, id)
   }
