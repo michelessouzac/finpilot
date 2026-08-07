@@ -159,8 +159,12 @@ function BillCard({
           </div>
           <div>
             <p className="font-display font-semibold text-ink">{bill.name}</p>
-            <p className="flex flex-wrap items-center gap-1.5 text-xs text-gray">
-              Vence {formatDate(dueDate)} · {account?.name ?? 'Conta removida'}
+            {/* Vencimento discreto, logo abaixo do nome. Quando a conta já foi
+                paga, quem interessa é a data do pagamento — destacada no rodapé
+                do card. */}
+            <p className="text-[11px] leading-tight text-gray">Vence {formatDate(dueDate)}</p>
+            <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-gray">
+              {account?.name ?? 'Conta removida'}
               {installmentTotal > 1 ? (
                 <span className="inline-flex items-center gap-0.5 rounded-full bg-ink/5 px-1.5 py-0.5">
                   Parcela {installmentIndex}/{installmentTotal}
@@ -263,8 +267,10 @@ function BillCard({
       )}
 
       {paid ? (
-        <div className="flex items-center justify-between text-xs text-gray">
-          <span className={`inline-flex items-center gap-1 ${isEntrada ? 'text-mint' : 'text-rose'}`}>
+        <div className="flex items-center justify-between gap-2">
+          {/* Mint nos dois casos: aqui a cor comunica "resolvida", não
+              entrada/saída — essa distinção já está no sinal e na cor do valor. */}
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-mint/15 px-3 py-1.5 font-display text-sm font-semibold text-mint">
             <CheckIcon /> {isEntrada ? 'Recebida' : 'Paga'} em {formatDate(payment.paidDate)}
           </span>
           <GhostButton
@@ -494,11 +500,14 @@ function MonthNav({ monthKey, onChange }) {
   )
 }
 
+// Linha do tempo com o mais novo em cima, igual à fatura do cartão, à lista de
+// lançamentos e à Caixa de entrada — todo registro financeiro do app segue a
+// mesma ordem, pra não obrigar a pessoa a reaprender a leitura a cada tela.
 function sortByDate(items) {
   return [...items].sort((a, b) => {
     const dateA = a.kind === 'bill' ? a.occurrence.dueDate : a.tx.date
     const dateB = b.kind === 'bill' ? b.occurrence.dueDate : b.tx.date
-    return dateA < dateB ? -1 : dateA > dateB ? 1 : 0
+    return dateA < dateB ? 1 : dateA > dateB ? -1 : 0
   })
 }
 
