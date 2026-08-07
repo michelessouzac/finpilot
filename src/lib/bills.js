@@ -1,6 +1,6 @@
 import { todayIso, formatMoney } from './constants'
 
-const DUE_SOON_DAYS = 5
+const DUE_SOON_DAYS = 2
 
 // Mesma lógica de comparação de datas locais (YYYY-MM-DD) usada em goals.js —
 // ancorada em UTC só pra subtração de dias, sem o fuso horário local interferir.
@@ -56,6 +56,14 @@ export function findPayment(payments, billId, monthKey) {
   return payments.find((p) => p.billId === billId && p.monthKey === monthKey) ?? null
 }
 
+// Conta recorrente só existe a partir do mês do primeiro vencimento
+// (`startMonthKey`). Sem essa checagem, uma conta cadastrada em agosto com
+// vencimento em agosto também gerava ocorrência no mês anterior — e ela
+// nascia já marcada como "vencida" em julho.
+function beforeStart(bill, monthKey) {
+  return Boolean(bill.startMonthKey) && monthKey < bill.startMonthKey
+}
+
 function occurrenceStatus(dueDate, paid, today) {
   if (paid) return 'paga'
   if (dueDate < today) return 'vencida'
@@ -78,6 +86,7 @@ export function buildOccurrences(bills, payments, today = todayIso()) {
     if (bill.recurring) {
       const months = [prevMonth, thisMonth]
       for (const monthKey of months) {
+        if (beforeStart(bill, monthKey)) continue
         // Recorrência "encerrada" (ex: Paula não divide mais a Netflix) para
         // de gerar ocorrência a partir do mês seguinte ao encerramento — os
         // meses anteriores, já vencidos ou pagos, continuam valendo.
@@ -157,6 +166,7 @@ function occurrenceForBillAtMonth(bill, payments, monthKey, today) {
   if (bill.active === false) return null
 
   if (bill.recurring) {
+    if (beforeStart(bill, monthKey)) return null
     if (bill.recurringEndMonthKey && monthKey > bill.recurringEndMonthKey) return null
     const payment = findPayment(payments, bill.id, monthKey)
     const dueDate = occurrenceDueDate(bill, monthKey)

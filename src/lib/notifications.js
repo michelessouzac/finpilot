@@ -1,4 +1,4 @@
-import { formatMoney, todayIso } from './constants'
+import { formatMoney, formatDate, todayIso } from './constants'
 import { buildOccurrences } from './bills'
 
 function installmentSuffix(occurrence) {
@@ -8,15 +8,15 @@ function installmentSuffix(occurrence) {
 }
 
 function buildMessage(occurrence) {
-  const { bill, status } = occurrence
+  const { bill, status, dueDate } = occurrence
   const isEntrada = bill.type === 'entrada'
   const amount = formatMoney(bill.amount ?? 0)
   const suffix = installmentSuffix(occurrence)
 
   if (status === 'vence-em-breve') {
     return isEntrada
-      ? `Você tem a receber ${amount} de ${bill.name}${bill.person ? ` com ${bill.person}` : ''}${suffix} essa semana.`
-      : `Você precisa pagar ${amount} de ${bill.name}${bill.person ? ` para ${bill.person}` : ''}${suffix} essa semana.`
+      ? `Você tem a receber ${amount} de ${bill.name}${bill.person ? ` com ${bill.person}` : ''}${suffix} até ${formatDate(dueDate)}.`
+      : `Você precisa pagar ${amount} de ${bill.name}${bill.person ? ` para ${bill.person}` : ''}${suffix} até ${formatDate(dueDate)}.`
   }
 
   // vencida
@@ -27,10 +27,10 @@ function buildMessage(occurrence) {
     : `Você ainda não pagou ${bill.name}${suffix} desse mês.`
 }
 
-// Gera uma notificação por ocorrência pendente (vencida ou vencendo em
-// breve), pronta pra ser exibida e clicada — cada uma carrega o `billId` +
-// `monthKey` da ocorrência de origem, usados pra navegar direto até o card
-// certo na tela de Lançamentos.
+// Gera uma notificação por ocorrência pendente — só o que exige uma ação
+// agora: conta vencida, conta vencendo nos próximos 2 dias e valor a receber
+// nessa mesma janela. Cada uma carrega o `billId` + `monthKey` da ocorrência
+// de origem, usados pra navegar direto até o card certo em Lançamentos.
 export function buildNotifications(bills, billPayments, today = todayIso()) {
   const occurrences = buildOccurrences(bills, billPayments, today)
 

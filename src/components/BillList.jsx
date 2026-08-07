@@ -7,7 +7,6 @@ import {
   currentMonthKey,
   monthKeyOffset,
 } from '../lib/bills'
-import { recurringCommitmentInsight } from '../lib/insights'
 import { Card, EmptyState, TextInput, Select, PrimaryButton, GhostButton } from './ui'
 import InsightNote from './InsightNote'
 import SwipeToDelete from './SwipeToDelete'
@@ -515,7 +514,6 @@ function BillList({
     () => transactions.filter((t) => t.date?.slice(0, 7) === selectedMonth),
     [transactions, selectedMonth],
   )
-  const recurringInsight = useMemo(() => recurringCommitmentInsight(transactions), [transactions])
 
   if (bills.length === 0 && transactions.length === 0) {
     return (
@@ -555,7 +553,6 @@ function BillList({
   return (
     <div className="flex flex-col gap-3">
       <InsightNote insight={insight} />
-      <InsightNote insight={recurringInsight} />
 
       <MonthNav monthKey={selectedMonth} onChange={setSelectedMonth} />
 

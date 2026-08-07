@@ -1,6 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
 import { Card, EmptyState } from './ui'
-import InsightNote from './InsightNote'
 import NotificationItem from './NotificationItem'
 import { ArrowUpIcon, ArrowDownIcon, WalletIcon } from './icons'
 import { formatMoney, formatDate } from '../lib/constants'
@@ -12,7 +11,6 @@ import {
   computeGoalsReserved,
   computePocketsReserved,
 } from '../lib/dashboard'
-import { overspendAlertInsight, monthComparisonInsight } from '../lib/insights'
 
 function ProjectionChart({ points }) {
   const width = 300
@@ -168,8 +166,6 @@ function Dashboard({
     [goals, pockets],
   )
   const note = availabilityNote({ reserved, invested })
-  const overspendAlert = useMemo(() => overspendAlertInsight(transactions), [transactions])
-  const monthComparison = useMemo(() => monthComparisonInsight(transactions), [transactions])
 
   if (accounts.length === 0) {
     return (
@@ -183,8 +179,6 @@ function Dashboard({
 
   return (
     <div className="flex flex-col gap-4">
-      <InsightNote insight={overspendAlert} />
-
       <Card className="flex flex-col gap-1">
         <span className="text-sm font-medium text-gray">Saldo disponível</span>
         <span className="font-display text-3xl font-bold text-ink">{formatMoney(available)}</span>
@@ -232,8 +226,6 @@ function Dashboard({
         </div>
         <ProjectionChart points={projection} />
       </Card>
-
-      <InsightNote insight={monthComparison} />
     </div>
   )
 }

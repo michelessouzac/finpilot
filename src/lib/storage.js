@@ -45,7 +45,24 @@ export const saveGoals = (userId, items) => saveJsonTable('goals', userId, items
 export const loadPockets = () => loadJsonTable('pockets')
 export const savePockets = (userId, items) => saveJsonTable('pockets', userId, items)
 
-export const loadBills = () => loadJsonTable('bills')
+// Contas recorrentes salvas antes do `startMonthKey` existir só guardavam o
+// dia do vencimento — o mês escolhido no formulário se perdia, e o app
+// inventava uma ocorrência vencida no mês anterior ao cadastro. Sem esse dado
+// no histórico, o mês em que a conta foi criada é a melhor aproximação: o
+// vencimento nunca é anterior ao cadastro. Roda a cada carregamento, mas só
+// preenche o que está faltando (o próximo save grava o valor de vez).
+export async function loadBills() {
+  const { data, error } = await supabase.from('bills').select('id, data, created_at')
+  if (error) throw error
+  return (data ?? []).map((row) => {
+    const bill = { id: row.id, ...row.data }
+    if (bill.recurring && !bill.startMonthKey && row.created_at) {
+      bill.startMonthKey = row.created_at.slice(0, 7)
+    }
+    return bill
+  })
+}
+
 export const saveBills = (userId, items) => saveJsonTable('bills', userId, items)
 
 export const loadBillPayments = () => loadJsonTable('bill_payments')

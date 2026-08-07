@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Field, TextInput, Select, PrimaryButton, GhostButton, Card } from './ui'
 import { CloseIcon } from './icons'
-import { todayIso } from '../lib/constants'
+import { todayIso, monthLabel } from '../lib/constants'
+import { currentMonthKey } from '../lib/bills'
 
 function emptyForm(accounts) {
   return {
@@ -10,7 +11,6 @@ function emptyForm(accounts) {
     amount: '',
     variableAmount: false,
     recurring: true,
-    dueDay: '10',
     dueDate: todayIso(),
     accountId: accounts[0]?.id ?? '',
     category: '',
@@ -20,14 +20,16 @@ function emptyForm(accounts) {
   }
 }
 
-// Converte o dia do vencimento (1-31) num ISO date pro input type="date"
-// exibir algo navegável — ancorado no mês atual, já que pra conta recorrente
-// só o dia importa (repete todo mês).
-function dueDayToIso(day) {
-  const now = new Date()
-  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
-  const clamped = Math.min(Number(day) || 1, lastDay)
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(clamped).padStart(2, '0')}`
+// Conta recorrente é guardada como dia (`dueDay`) + mês do primeiro
+// vencimento (`startMonthKey`) — aqui os dois viram de novo uma data
+// completa, que é o que o input consegue exibir. Contas antigas, salvas antes
+// do `startMonthKey` existir, caem no mês atual.
+function recurringDateFrom(bill) {
+  const monthKey = bill.startMonthKey ?? currentMonthKey()
+  const [year, month] = monthKey.split('-').map(Number)
+  const lastDay = new Date(year, month, 0).getDate()
+  const day = Math.min(Number(bill.dueDay) || 1, lastDay)
+  return `${monthKey}-${String(day).padStart(2, '0')}`
 }
 
 // A bill salva não tem `installmentsEnabled`/`installmentsCount` (só
@@ -37,8 +39,7 @@ function formFrom(bill, accounts) {
   return {
     ...bill,
     amount: bill.amount ?? '',
-    dueDay: bill.dueDay ?? '10',
-    dueDate: bill.dueDate ?? todayIso(),
+    dueDate: bill.recurring ? recurringDateFrom(bill) : (bill.dueDate ?? todayIso()),
     category: bill.category ?? '',
     person: bill.person ?? '',
     installmentsEnabled: Boolean(bill.installments),
@@ -52,13 +53,17 @@ function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
 
   function handleSubmit(e) {
     e.preventDefault()
-    if (!form.name.trim() || !form.accountId) return
+    if (!form.name.trim() || !form.accountId || !form.dueDate) return
     if (!form.variableAmount && form.amount === '') return
     const { installmentsEnabled, installmentsCount, ...rest } = form
     onSave({
       ...rest,
       amount: form.amount === '' ? null : Number(form.amount),
-      dueDay: form.recurring ? Number(form.dueDay) : null,
+      // Recorrente guarda o dia + o mês em que começa a valer: sem o mês, uma
+      // conta cadastrada com vencimento em agosto também aparecia (vencida)
+      // em julho.
+      dueDay: form.recurring ? Number(form.dueDate.slice(-2)) : null,
+      startMonthKey: form.recurring ? form.dueDate.slice(0, 7) : null,
       dueDate: form.recurring ? null : form.dueDate,
       category: form.category || undefined,
       person: form.person.trim() || undefined,
@@ -184,17 +189,19 @@ function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
         )}
 
         {form.recurring ? (
-          <Field label="Data de vencimento">
+          <Field label="Primeiro vencimento">
             <TextInput
               type="date"
-              value={dueDayToIso(form.dueDay)}
-              onChange={(e) => {
-                if (!e.target.value) return
-                setForm({ ...form, dueDay: String(Number(e.target.value.slice(-2))) })
-              }}
+              value={form.dueDate}
+              onChange={(e) => setForm({ ...form, dueDate: e.target.value })}
               required
             />
-            <span className="text-xs text-gray">Repete todo dia {form.dueDay} de cada mês</span>
+            {form.dueDate && (
+              <span className="text-xs text-gray">
+                Repete todo dia {Number(form.dueDate.slice(-2))}, a partir de{' '}
+                {monthLabel(form.dueDate.slice(0, 7))}
+              </span>
+            )}
           </Field>
         ) : (
           <Field label={form.installmentsEnabled ? 'Data da 1ª parcela' : 'Data de vencimento'}>

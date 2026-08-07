@@ -339,7 +339,7 @@ function AppContent({ session }) {
     const fresh = notifications.filter((n) => !seen.has(n.id))
     if (fresh.length === 0) return
     for (const n of fresh) {
-      showDeviceNotification(n.status === 'vencida' ? 'Conta vencida' : 'Vencendo essa semana', {
+      showDeviceNotification(n.status === 'vencida' ? 'Conta vencida' : 'Vence nos próximos dias', {
         body: n.message,
         tag: n.id,
       })
