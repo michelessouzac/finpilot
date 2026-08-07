@@ -45,6 +45,11 @@ function PayForm({ occurrence, onConfirm, onCancel }) {
   const [accountId, setAccountId] = useState(bill.accountId)
   const [paidDate, setPaidDate] = useState(todayIso())
 
+  // Conta marcada como "valor variável" e cadastrada sem estimativa (ex:
+  // roupas do brechó, que só dá pra somar no dia): o valor nasce em branco e
+  // o formulário existe justamente pra ele ser informado antes da baixa.
+  const undefinedAmount = bill.amount == null
+
   function handleSubmit(e) {
     e.preventDefault()
     if (amount === '' || !accountId) return
@@ -53,6 +58,17 @@ function PayForm({ occurrence, onConfirm, onCancel }) {
 
   return (
     <form className="flex flex-col gap-3 rounded-2xl bg-ink/5 p-3" onSubmit={handleSubmit}>
+      <div className="flex flex-col gap-0.5">
+        <p className="font-display text-sm font-semibold text-ink">
+          Quanto você {isEntrada ? 'recebeu' : 'pagou'}?
+        </p>
+        {undefinedAmount && (
+          <p className="text-xs text-gray">
+            Essa conta foi cadastrada sem valor definido — informe o valor real pra dar baixa e
+            atualizar o saldo.
+          </p>
+        )}
+      </div>
       <div className="grid grid-cols-2 gap-2">
         <TextInput
           type="number"
@@ -108,6 +124,10 @@ function BillCard({
   const account = accounts.find((a) => a.id === bill.accountId)
   const category = categoryMeta(categories, bill.category)
   const isEntrada = bill.type === 'entrada'
+  // Enquanto não tem baixa, uma conta de valor variável sem estimativa não tem
+  // valor nenhum pra mostrar — "R$ 0,00" passaria a ideia errada de que não
+  // custa nada.
+  const undefinedAmount = !paid && bill.amount == null
   const meta =
     status === 'paga'
       ? paidMeta(isEntrada)
@@ -196,13 +216,17 @@ function BillCard({
           {status === 'vencida' && <BellIcon />}
           {meta.label}
         </span>
-        <span className={`font-display font-semibold ${isEntrada ? 'text-mint' : 'text-ink'}`}>
-          {isEntrada ? '+ ' : '- '}
-          {formatMoney(paid ? payment.amount : bill.amount ?? 0)}
-          {!paid && bill.variableAmount && bill.amount == null && (
-            <span className="ml-1 text-xs font-normal text-gray">(estimado)</span>
-          )}
-        </span>
+        {undefinedAmount ? (
+          <span className="font-display text-sm font-semibold text-gray">A definir</span>
+        ) : (
+          <span className={`font-display font-semibold ${isEntrada ? 'text-mint' : 'text-ink'}`}>
+            {isEntrada ? '+ ' : '- '}
+            {formatMoney(paid ? payment.amount : bill.amount)}
+            {!paid && bill.variableAmount && (
+              <span className="ml-1 text-xs font-normal text-gray">(estimado)</span>
+            )}
+          </span>
+        )}
       </div>
 
       {bill.recurring && (
@@ -262,7 +286,10 @@ function BillCard({
         />
       ) : (
         <PrimaryButton type="button" onClick={() => setPaying(true)}>
-          <CheckIcon /> Marcar como {isEntrada ? 'recebida' : 'paga'}
+          <CheckIcon />{' '}
+          {undefinedAmount
+            ? `Informar valor ${isEntrada ? 'recebido' : 'pago'}`
+            : `Marcar como ${isEntrada ? 'recebida' : 'paga'}`}
         </PrimaryButton>
       )}
     </Card>
@@ -510,8 +537,16 @@ function BillList({
     () => buildOccurrencesForMonth(bills, billPayments, selectedMonth),
     [bills, billPayments, selectedMonth],
   )
+  // Marcar uma conta como paga cria um lançamento automático só pra debitar o
+  // saldo da conta escolhida (ver handlePayBill em App.jsx). Esse lançamento
+  // não entra na lista: quem representa a conta paga aqui é o próprio card da
+  // ocorrência — senão o mesmo gasto aparecia duas vezes e somava em dobro no
+  // total do grupo.
   const monthTransactions = useMemo(
-    () => transactions.filter((t) => t.date?.slice(0, 7) === selectedMonth),
+    () =>
+      transactions.filter(
+        (t) => t.date?.slice(0, 7) === selectedMonth && !t.billPaymentId && !t.billId,
+      ),
     [transactions, selectedMonth],
   )
 

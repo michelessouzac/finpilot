@@ -68,6 +68,14 @@ export const saveBills = (userId, items) => saveJsonTable('bills', userId, items
 export const loadBillPayments = () => loadJsonTable('bill_payments')
 export const saveBillPayments = (userId, items) => saveJsonTable('bill_payments', userId, items)
 
+// Assinaturas de cartão são guardadas como regra ("Netflix, R$ 44,90, todo dia
+// 12, desde 08/2026"), não como lançamento repetido — a cobrança de cada
+// fatura é calculada na hora (ver lib/invoices.js). Assim cancelar é só
+// marcar o mês final, sem precisar caçar lançamentos futuros pra apagar.
+export const loadCardSubscriptions = () => loadJsonTable('card_subscriptions')
+export const saveCardSubscriptions = (userId, items) =>
+  saveJsonTable('card_subscriptions', userId, items)
+
 // Categorias: o "id" é o slug (ex: "alimentacao"), não um uuid — a chave no
 // banco é o par (user_id, id), pra cada pessoa poder ter seus próprios slugs.
 export async function loadCategories() {

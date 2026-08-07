@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Field, TextInput, Select, PrimaryButton, GhostButton, Card } from './ui'
+import CategorySelect from './CategorySelect'
 import { CloseIcon } from './icons'
 import { todayIso } from '../lib/constants'
 
@@ -11,16 +12,21 @@ function emptyForm(accounts) {
     date: todayIso(),
     accountId: accounts[0]?.id ?? '',
     recurring: false,
+    category: '',
   }
 }
 
-function TransactionForm({ accounts, initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial ?? emptyForm(accounts))
+function TransactionForm({ accounts, categories = [], initial, onSave, onCancel, onAddCategory }) {
+  // Lançamento antigo pode não ter categoria nenhuma — vira string vazia pro
+  // seletor não alternar entre controlado e não controlado.
+  const [form, setForm] = useState(() =>
+    initial ? { ...initial, category: initial.category ?? '' } : emptyForm(accounts),
+  )
 
   function handleSubmit(e) {
     e.preventDefault()
     if (!form.description.trim() || form.amount === '' || !form.accountId) return
-    onSave({ ...form, amount: Number(form.amount) })
+    onSave({ ...form, amount: Number(form.amount), category: form.category || undefined })
   }
 
   return (
@@ -97,6 +103,13 @@ function TransactionForm({ accounts, initial, onSave, onCancel }) {
             </Select>
           </Field>
         </div>
+
+        <CategorySelect
+          categories={categories}
+          value={form.category}
+          onChange={(category) => setForm({ ...form, category })}
+          onAddCategory={onAddCategory}
+        />
 
         <label className="flex items-center gap-2 text-sm font-medium text-gray">
           <input

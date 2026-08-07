@@ -1,5 +1,6 @@
 import { todayIso, WORK_HOURS_PER_MONTH } from './constants'
-import { computeProjection, accountCurrentBalance } from './dashboard'
+import { computeProjection } from './dashboard'
+import { cardAvailableLimit } from './invoices'
 import { computeForecast, computeSaved } from './goals'
 
 function daysBetween(isoA, isoB) {
@@ -37,7 +38,12 @@ function addMonthsIso(iso, months) {
 // - Aponta se, nos meses em que a parcela está ativa, ela é maior que a
 //   sobra mensal atual (ou seja, a pessoa passaria a gastar mais do que
 //   ganha enquanto estiver pagando).
-export function simulatePurchase(accounts, transactions, purchase) {
+export function simulatePurchase(
+  accounts,
+  transactions,
+  purchase,
+  { bills = [], billPayments = [], subscriptions = [] } = {},
+) {
   const installments = Math.max(1, Math.round(purchase.installments || 1))
   const installmentAmount = purchase.amount / installments
   const chargeDates = Array.from({ length: installments }, (_, k) => addMonthsIso(purchase.date, k))
@@ -60,7 +66,11 @@ export function simulatePurchase(accounts, transactions, purchase) {
   if (purchase.cardId) {
     const card = accounts.find((a) => a.id === purchase.cardId)
     if (card) {
-      const availableLimit = accountCurrentBalance(card, transactions)
+      // Mesmo limite disponível que a tela de Cartões mostra — desconta a
+      // fatura aberta, as fechadas que ainda não foram pagas e as parcelas
+      // que ainda vão cair. Antes essa conta era feita à parte aqui e dava um
+      // número mais otimista que o da outra tela, pro mesmo cartão.
+      const availableLimit = cardAvailableLimit(card, transactions, bills, billPayments, subscriptions)
       cardCheck = {
         cardName: card.name,
         availableLimit,

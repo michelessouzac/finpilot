@@ -10,20 +10,23 @@ function installmentSuffix(occurrence) {
 function buildMessage(occurrence) {
   const { bill, status, dueDate } = occurrence
   const isEntrada = bill.type === 'entrada'
-  const amount = formatMoney(bill.amount ?? 0)
+  // Conta de valor variável pode chegar ao vencimento sem valor nenhum (ex:
+  // vendas do brechó, que só dão pra somar no dia) — aí a mensagem fala só do
+  // nome, em vez de anunciar um "R$ 0,00" que não quer dizer nada.
+  const amountOf = bill.amount == null ? '' : `${formatMoney(bill.amount)} de `
   const suffix = installmentSuffix(occurrence)
 
   if (status === 'vence-em-breve') {
     return isEntrada
-      ? `Você tem a receber ${amount} de ${bill.name}${bill.person ? ` com ${bill.person}` : ''}${suffix} até ${formatDate(dueDate)}.`
-      : `Você precisa pagar ${amount} de ${bill.name}${bill.person ? ` para ${bill.person}` : ''}${suffix} até ${formatDate(dueDate)}.`
+      ? `Você tem a receber ${amountOf}${bill.name}${bill.person ? ` com ${bill.person}` : ''}${suffix} até ${formatDate(dueDate)}.`
+      : `Você precisa pagar ${amountOf}${bill.name}${bill.person ? ` para ${bill.person}` : ''}${suffix} até ${formatDate(dueDate)}.`
   }
 
   // vencida
   return isEntrada
     ? bill.person
-      ? `${bill.person} ainda não te pagou ${amount} de ${bill.name}${suffix}.`
-      : `Você ainda não recebeu ${amount} de ${bill.name}${suffix}.`
+      ? `${bill.person} ainda não te pagou ${amountOf}${bill.name}${suffix}.`
+      : `Você ainda não recebeu ${amountOf}${bill.name}${suffix}.`
     : `Você ainda não pagou ${bill.name}${suffix} desse mês.`
 }
 
@@ -42,7 +45,7 @@ export function buildNotifications(bills, billPayments, today = todayIso()) {
       monthKey: o.monthKey,
       status: o.status,
       billType: o.bill.type,
-      amount: o.bill.amount ?? 0,
+      amount: o.bill.amount ?? null,
       message: buildMessage(o),
       tone: o.status === 'vencida' ? 'warning' : 'neutral',
       emoji: o.status === 'vencida' ? '⚠️' : '⏰',

@@ -7,7 +7,15 @@ import { loadProfile, saveProfile } from '../lib/storage'
 
 const emptyForm = { description: '', amount: '', date: todayIso(), method: 'avista', cardId: '', installments: '1' }
 
-function SimuladorScreen({ accounts, transactions, goals, userId }) {
+function SimuladorScreen({
+  accounts,
+  transactions,
+  goals,
+  bills = [],
+  billPayments = [],
+  subscriptions = [],
+  userId,
+}) {
   const [form, setForm] = useState(emptyForm)
   const [result, setResult] = useState(null)
   const cards = accounts.filter((a) => a.type === 'cartao')
@@ -59,7 +67,11 @@ function SimuladorScreen({ accounts, transactions, goals, userId }) {
       installments,
       cardId: form.method === 'cartao' ? form.cardId : null,
     }
-    const projection = simulatePurchase(accounts, transactions, purchase)
+    const projection = simulatePurchase(accounts, transactions, purchase, {
+      bills,
+      billPayments,
+      subscriptions,
+    })
     const goalImpacts = (goals ?? [])
       .map((goal) => ({ goal, impact: simulateGoalImpact(goal, amount) }))
       .filter((g) => g.impact)

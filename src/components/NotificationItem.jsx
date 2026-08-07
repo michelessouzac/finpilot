@@ -24,7 +24,7 @@ function NotificationItem({ notification, onClick }) {
       <span className="text-sm leading-none">{notification.emoji}</span>
       <span className="flex-1 leading-snug">{notification.message}</span>
       <span className={`shrink-0 font-display text-xs font-semibold ${amountClasses[notification.billType] ?? amountClasses.saida}`}>
-        {formatMoney(notification.amount)}
+        {notification.amount == null ? 'A definir' : formatMoney(notification.amount)}
       </span>
     </button>
   )

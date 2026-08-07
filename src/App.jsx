@@ -53,6 +53,7 @@ import {
   invoiceDueDate,
   resolveInvoiceId,
   backfillInvoiceIds,
+  installmentSchedule,
 } from './lib/invoices.js'
 import {
   loadAccounts,
@@ -69,6 +70,8 @@ import {
   saveBills,
   loadBillPayments,
   saveBillPayments,
+  loadCardSubscriptions,
+  saveCardSubscriptions,
   loadDismissedNotifications,
   saveDismissedNotifications,
   generateId,
@@ -181,6 +184,7 @@ function AppContent({ session }) {
   const [pockets, setPockets] = useState([])
   const [bills, setBills] = useState([])
   const [billPayments, setBillPayments] = useState([])
+  const [cardSubscriptions, setCardSubscriptions] = useState([])
   const [dismissedNotifications, setDismissedNotifications] = useState(new Set())
 
   // Busca os dados do Supabase assim que a pessoa loga. Se o banco ainda
@@ -199,6 +203,7 @@ function AppContent({ session }) {
         pocketsData,
         billsData,
         billPaymentsData,
+        cardSubscriptionsData,
         dismissedData,
       ] = await Promise.all([
         loadAccounts(),
@@ -208,6 +213,7 @@ function AppContent({ session }) {
         loadPockets(),
         loadBills(),
         loadBillPayments(),
+        loadCardSubscriptions(),
         loadDismissedNotifications(),
       ])
 
@@ -237,6 +243,7 @@ function AppContent({ session }) {
       setPockets(pocketsData)
       setBills(billsData)
       setBillPayments(billPaymentsData)
+      setCardSubscriptions(cardSubscriptionsData)
       setDismissedNotifications(new Set(dismissedData))
       setDataLoaded(true)
     }
@@ -319,6 +326,9 @@ function AppContent({ session }) {
     if (dataLoaded) saveBillPayments(userId, billPayments).catch(console.error)
   }, [dataLoaded, userId, billPayments])
   useEffect(() => {
+    if (dataLoaded) saveCardSubscriptions(userId, cardSubscriptions).catch(console.error)
+  }, [dataLoaded, userId, cardSubscriptions])
+  useEffect(() => {
     if (dataLoaded) saveDismissedNotifications(userId, [...dismissedNotifications]).catch(console.error)
   }, [dataLoaded, userId, dismissedNotifications])
 
@@ -387,6 +397,7 @@ function AppContent({ session }) {
     const billIdsToRemove = new Set(bills.filter((b) => b.cardId === id).map((b) => b.id))
     setAccounts(accounts.filter((a) => a.id !== id))
     setTransactions(transactions.filter((t) => t.accountId !== id))
+    setCardSubscriptions(cardSubscriptions.filter((s) => s.cardId !== id))
     if (billIdsToRemove.size > 0) {
       setBills(bills.filter((b) => !billIdsToRemove.has(b.id)))
       setBillPayments(billPayments.filter((p) => !billIdsToRemove.has(p.billId)))
@@ -417,6 +428,107 @@ function AppContent({ session }) {
   function handleDeleteTx(id) {
     if (!confirm('Apagar esse lançamento?')) return
     setTransactions(transactions.filter((t) => t.id !== id))
+  }
+
+  // Compra no cartão, nos três formatos que existem na vida real:
+  //
+  // - à vista: um lançamento só, na fatura em que a data cai;
+  // - parcelada: um lançamento por parcela que ainda falta, cada um já na
+  //   fatura do mês certo — é isso que faz as parcelas futuras segurarem
+  //   limite desde agora (ver cardAvailableLimit em lib/invoices.js);
+  // - assinatura: nenhum lançamento, só a regra — a cobrança de cada fatura é
+  //   calculada na hora, pra não precisar inventar um fim pra algo que não
+  //   tem (ver subscriptionChargesInPeriod em lib/invoices.js).
+  function handleAddCardPurchase(card, data) {
+    const { description, amount, date, category, mode } = data
+
+    if (mode === 'assinatura') {
+      setCardSubscriptions([
+        ...cardSubscriptions,
+        {
+          id: generateId(),
+          cardId: card.id,
+          description,
+          amount,
+          chargeDay: data.chargeDay,
+          category,
+          startPeriodKey: periodKeyForDate(date, card),
+          endPeriodKey: null,
+        },
+      ])
+      return
+    }
+
+    const base = { description, amount, type: 'saida', accountId: card.id, category, recurring: false }
+
+    if (mode === 'parcelado') {
+      const purchaseId = generateId()
+      const schedule = installmentSchedule(date, data.currentInstallment, data.installmentsTotal)
+      const newTransactions = schedule.map(({ index, date: installmentDate }) => ({
+        ...base,
+        id: generateId(),
+        // O "(2/4)" entra na própria descrição pra a parcela se identificar em
+        // qualquer lugar que mostre lançamento solto (Caixa de entrada,
+        // Insights), não só na fatura.
+        description: `${description} (${index}/${data.installmentsTotal})`,
+        date: installmentDate,
+        purchaseId,
+        installmentIndex: index,
+        installmentTotal: data.installmentsTotal,
+        ...resolveInvoiceId(installmentDate, card),
+      }))
+      setTransactions([...transactions, ...newTransactions])
+      return
+    }
+
+    setTransactions([
+      ...transactions,
+      { ...base, id: generateId(), date, ...resolveInvoiceId(date, card) },
+    ])
+  }
+
+  // Apagar uma parcela sozinha quase nunca é o que a pessoa quer (a compra
+  // inteira foi cancelada/estornada), então oferece apagar o grupo todo —
+  // mas só as parcelas que ainda não caíram numa fatura fechada, pra não
+  // reescrever um mês que já foi pago.
+  function handleDeleteCardItem(tx) {
+    const siblings = tx.purchaseId
+      ? transactions.filter((t) => t.purchaseId === tx.purchaseId && t.id !== tx.id)
+      : []
+
+    if (siblings.length > 0) {
+      const removeGroup = confirm(
+        `"${tx.description}" faz parte de uma compra parcelada. Apagar também as outras ${siblings.length} parcela(s)?\n\nOK = apaga a compra inteira · Cancelar = apaga só essa parcela`,
+      )
+      if (removeGroup) {
+        setTransactions(transactions.filter((t) => t.purchaseId !== tx.purchaseId))
+        return
+      }
+    } else if (!confirm('Apagar esse lançamento?')) {
+      return
+    }
+
+    setTransactions(transactions.filter((t) => t.id !== tx.id))
+  }
+
+  // Interromper uma assinatura mantém a cobrança da fatura em aberto (ela já
+  // aconteceu) e corta só as seguintes — mesma convenção do "Interromper
+  // lançamentos futuros" das contas fixas.
+  function handleStopSubscription(subscription) {
+    const card = accounts.find((a) => a.id === subscription.cardId)
+    setCardSubscriptions(
+      cardSubscriptions.map((s) =>
+        s.id === subscription.id
+          ? { ...s, endPeriodKey: card ? periodKeyForDate(todayIso(), card) : currentMonthKey() }
+          : s,
+      ),
+    )
+  }
+
+  function handleResumeSubscription(subscription) {
+    setCardSubscriptions(
+      cardSubscriptions.map((s) => (s.id === subscription.id ? { ...s, endPeriodKey: null } : s)),
+    )
   }
 
   function handleAssignCategory(txId, categoryId) {
@@ -601,7 +713,7 @@ function AppContent({ session }) {
       for (let offset = 1; offset <= 12; offset++) {
         const closedPeriodKey = monthKeyOffset(openPeriodKey, -offset)
         const period = invoicePeriod(card, closedPeriodKey)
-        const total = invoiceTotal(transactions, card.id, period)
+        const total = invoiceTotal(transactions, card.id, period, cardSubscriptions)
         if (total <= 0) continue
 
         const alreadyExists = bills.some(
@@ -627,7 +739,7 @@ function AppContent({ session }) {
     }
 
     if (newBills.length > 0) setBills((prev) => [...prev, ...newBills])
-  }, [accounts, transactions, bills])
+  }, [accounts, transactions, bills, cardSubscriptions])
 
   // Compras no cartão já aparecem detalhadas na fatura, em Cartões — aqui em
   // Lançamentos só cabe o saldo total dela (que chega como a conta "Fatura
@@ -779,8 +891,14 @@ function AppContent({ session }) {
             categories={categories}
             bills={bills}
             billPayments={billPayments}
+            subscriptions={cardSubscriptions}
             selectedCardId={selectedCardId}
             onSelectCard={setSelectedCardId}
+            onAddPurchase={handleAddCardPurchase}
+            onDeleteCardItem={handleDeleteCardItem}
+            onStopSubscription={handleStopSubscription}
+            onResumeSubscription={handleResumeSubscription}
+            onAddCategory={handleAddCategory}
           />
         )}
 
@@ -818,6 +936,8 @@ function AppContent({ session }) {
             {showTxForm && (
               <TransactionForm
                 accounts={accounts}
+                categories={categories}
+                onAddCategory={handleAddCategory}
                 initial={editingTx}
                 onSave={handleSaveTx}
                 onCancel={() => {
@@ -831,6 +951,7 @@ function AppContent({ session }) {
               <BillForm
                 accounts={accounts}
                 categories={categories}
+                onAddCategory={handleAddCategory}
                 initial={editingBill}
                 onSave={handleSaveBill}
                 onCancel={() => {
@@ -844,6 +965,7 @@ function AppContent({ session }) {
               <OpenInvoicesSummary
                 accounts={accounts}
                 transactions={transactions}
+                subscriptions={cardSubscriptions}
                 onSelectCard={handleOpenCard}
               />
             )}
@@ -979,7 +1101,15 @@ function AppContent({ session }) {
         )}
 
         {tab === 'simulador' && (
-          <SimuladorScreen accounts={accounts} transactions={transactions} goals={goals} userId={userId} />
+          <SimuladorScreen
+            accounts={accounts}
+            transactions={transactions}
+            goals={goals}
+            bills={bills}
+            billPayments={billPayments}
+            subscriptions={cardSubscriptions}
+            userId={userId}
+          />
         )}
 
         {tab === 'insights' && (

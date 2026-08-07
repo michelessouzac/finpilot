@@ -6,14 +6,14 @@ import { CardIcon } from './icons'
 // Mostra, por cartão, quanto já foi gasto na fatura que ainda está aberta —
 // recalcula sozinho a cada novo lançamento no cartão, sem esperar ela fechar
 // (a fatura só vira conta a pagar depois de fechada, em App.jsx).
-function OpenInvoicesSummary({ accounts, transactions, onSelectCard }) {
+function OpenInvoicesSummary({ accounts, transactions, subscriptions = [], onSelectCard }) {
   const cards = accounts.filter((a) => a.type === 'cartao')
   if (cards.length === 0) return null
 
   const rows = cards.map((card) => {
     const periodKey = currentPeriodKey(card)
     const period = invoicePeriod(card, periodKey)
-    const total = invoiceTotal(transactions, card.id, period)
+    const total = invoiceTotal(transactions, card.id, period, subscriptions)
     return { card, period, total }
   })
 

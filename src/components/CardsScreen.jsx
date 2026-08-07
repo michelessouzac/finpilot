@@ -1,24 +1,26 @@
 import { useMemo, useState } from 'react'
-import { formatMoney, formatDate, monthLabel } from '../lib/constants'
+import { formatMoney, formatDate, monthLabel, categoryMeta } from '../lib/constants'
 import {
   listInvoicePeriods,
-  cardTransactionsInPeriod,
+  invoiceItems,
   invoiceTotal,
   invoiceDueDate,
   isPeriodClosed,
   cardSpendingByCategory,
   cardAvailableLimit,
+  currentPeriodKey,
 } from '../lib/invoices'
-import { Card, Select, GhostButton, EmptyState } from './ui'
-import { ArrowDownIcon, ArrowUpIcon, CardIcon } from './icons'
+import { Card, Select, GhostButton, PrimaryButton, EmptyState } from './ui'
+import CardPurchaseForm from './CardPurchaseForm'
+import { ArrowDownIcon, ArrowUpIcon, CardIcon, PlusIcon, RepeatIcon, TrashIcon } from './icons'
 
-function InvoiceItem({ tx }) {
+function InvoiceItem({ tx, onDelete }) {
   const isEntrada = tx.type === 'entrada'
   return (
     <div className="flex items-center justify-between gap-3 border-b border-ink/5 py-2.5 last:border-0">
       <div className="flex items-center gap-2.5">
         <div
-          className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${
             isEntrada ? 'bg-mint/15 text-mint' : 'bg-ink/5 text-ink'
           }`}
         >
@@ -26,13 +28,35 @@ function InvoiceItem({ tx }) {
         </div>
         <div>
           <p className="text-sm font-medium text-ink">{tx.description}</p>
-          <p className="text-xs text-gray">{formatDate(tx.date)}</p>
+          <p className="flex flex-wrap items-center gap-1.5 text-xs text-gray">
+            {formatDate(tx.date)}
+            {tx.isSubscription && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-ink/5 px-1.5 py-0.5">
+                <RepeatIcon /> assinatura
+              </span>
+            )}
+          </p>
         </div>
       </div>
-      <span className={`text-sm font-semibold ${isEntrada ? 'text-mint' : 'text-ink'}`}>
-        {isEntrada ? '- ' : ''}
-        {formatMoney(tx.amount)}
-      </span>
+      <div className="flex items-center gap-1">
+        <span className={`text-sm font-semibold ${isEntrada ? 'text-mint' : 'text-ink'}`}>
+          {isEntrada ? '- ' : ''}
+          {formatMoney(tx.amount)}
+        </span>
+        {/* Cobrança de assinatura não é um lançamento salvo — ela é calculada a
+            partir da regra, então quem "apaga" é o botão de interromper lá
+            embaixo, não um X aqui. */}
+        {!tx.isSubscription && (
+          <button
+            type="button"
+            onClick={() => onDelete(tx)}
+            className="rounded-full p-1.5 text-gray hover:bg-rose/15 hover:text-rose"
+            aria-label={`Apagar ${tx.description}`}
+          >
+            <TrashIcon />
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -40,8 +64,8 @@ function InvoiceItem({ tx }) {
 // Ficha do cartão preenchida sozinha com o que já foi cadastrado na conta —
 // a pessoa não precisa digitar de novo banco, vencimento, fechamento ou
 // limite aqui, só ver o resumo.
-function CardInfoSummary({ card, transactions, bills, billPayments }) {
-  const available = cardAvailableLimit(card, transactions, bills, billPayments)
+function CardInfoSummary({ card, transactions, bills, billPayments, subscriptions }) {
+  const available = cardAvailableLimit(card, transactions, bills, billPayments, subscriptions)
   const fields = [
     { label: 'Banco emissor', value: card.name },
     { label: 'Fechamento da fatura', value: card.closingDay ? `Dia ${card.closingDay}` : '—' },
@@ -62,26 +86,83 @@ function CardInfoSummary({ card, transactions, bills, billPayments }) {
   )
 }
 
-function CardInvoiceView({ card, transactions, categories }) {
-  const periods = useMemo(() => listInvoicePeriods(card, { pastCount: 6, futureCount: 1 }), [card])
+// Assinaturas são regras, não lançamentos — então ganham uma lista própria,
+// separada da fatura, pra poder interromper/reativar sem caçar a cobrança de
+// cada mês.
+function SubscriptionsCard({ card, subscriptions, categories, onStop, onResume }) {
+  const openPeriodKey = currentPeriodKey(card)
+  const cardSubs = subscriptions.filter((s) => s.cardId === card.id)
+  if (cardSubs.length === 0) return null
+
+  return (
+    <Card className="flex flex-col gap-2">
+      <h3 className="font-display text-sm font-semibold text-ink">Assinaturas nesse cartão</h3>
+      {cardSubs.map((sub) => {
+        const ended = Boolean(sub.endPeriodKey)
+        const finished = ended && sub.endPeriodKey < openPeriodKey
+        const category = categoryMeta(categories, sub.category)
+        return (
+          <div
+            key={sub.id}
+            className="flex items-center justify-between gap-3 border-b border-ink/5 py-2 last:border-0"
+          >
+            <div>
+              <p className="text-sm font-medium text-ink">{sub.description}</p>
+              <p className="flex flex-wrap items-center gap-1.5 text-xs text-gray">
+                Todo dia {sub.chargeDay}
+                {category && (
+                  <span className="inline-flex items-center gap-0.5 rounded-full bg-coral/15 px-1.5 py-0.5 text-coral">
+                    {category.emoji} {category.label}
+                  </span>
+                )}
+                {ended && (
+                  <span className="inline-flex items-center rounded-full bg-rose/10 px-1.5 py-0.5 text-rose">
+                    {finished ? 'cancelada' : `última cobrança em ${monthLabel(sub.endPeriodKey)}`}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="text-sm font-semibold text-ink">{formatMoney(sub.amount)}</span>
+              <GhostButton
+                type="button"
+                onClick={() => (ended ? onResume(sub) : onStop(sub))}
+                className="px-3 py-1.5 text-xs"
+              >
+                {ended ? 'Reativar' : 'Interromper'}
+              </GhostButton>
+            </div>
+          </div>
+        )
+      })}
+    </Card>
+  )
+}
+
+function CardInvoiceView({ card, transactions, categories, subscriptions, onDeleteItem }) {
+  const periods = useMemo(() => listInvoicePeriods(card, { pastCount: 6, futureCount: 12 }), [card])
   const currentIndex = periods.findIndex((p) => !isPeriodClosed(p))
   const [index, setIndex] = useState(currentIndex === -1 ? periods.length - 1 : currentIndex)
 
   const period = periods[index]
   const items = useMemo(
-    () => cardTransactionsInPeriod(transactions, card.id, period).sort((a, b) => (a.date < b.date ? 1 : -1)),
-    [transactions, card.id, period],
+    () =>
+      invoiceItems(transactions, card.id, period, subscriptions).sort((a, b) =>
+        a.date < b.date ? 1 : -1,
+      ),
+    [transactions, card.id, period, subscriptions],
   )
-  const total = invoiceTotal(transactions, card.id, period)
+  const total = invoiceTotal(transactions, card.id, period, subscriptions)
   const dueDate = invoiceDueDate(card, period.periodKey)
   const closed = isPeriodClosed(period)
+  const future = period.periodKey > currentPeriodKey(card)
   const categoryBreakdown = useMemo(
-    () => cardSpendingByCategory(transactions, card.id, period, categories),
-    [transactions, card.id, period, categories],
+    () => cardSpendingByCategory(transactions, card.id, period, categories, subscriptions),
+    [transactions, card.id, period, categories, subscriptions],
   )
 
   const prevPeriod = periods[index - 1]
-  const prevTotal = prevPeriod ? invoiceTotal(transactions, card.id, prevPeriod) : null
+  const prevTotal = prevPeriod ? invoiceTotal(transactions, card.id, prevPeriod, subscriptions) : null
 
   return (
     <div className="flex flex-col gap-4">
@@ -108,7 +189,11 @@ function CardInvoiceView({ card, transactions, categories }) {
 
         <div className="flex flex-col items-center gap-1 py-2">
           <span className="text-sm font-medium text-gray">
-            {closed ? 'Total da fatura' : 'Total em aberto (fatura ainda não fechou)'}
+            {closed
+              ? 'Total da fatura'
+              : future
+                ? 'Já comprometido nessa fatura'
+                : 'Total em aberto (fatura ainda não fechou)'}
           </span>
           <span className="font-display text-3xl font-bold text-ink">{formatMoney(total)}</span>
           <span className="text-xs text-gray">
@@ -142,7 +227,7 @@ function CardInvoiceView({ card, transactions, categories }) {
         {items.length === 0 ? (
           <p className="py-4 text-center text-sm text-gray">Nenhum lançamento nesse período.</p>
         ) : (
-          items.map((tx) => <InvoiceItem key={tx.id} tx={tx} />)
+          items.map((tx) => <InvoiceItem key={tx.id} tx={tx} onDelete={onDeleteItem} />)
         )}
       </Card>
     </div>
@@ -155,13 +240,20 @@ function CardsScreen({
   categories,
   bills = [],
   billPayments = [],
+  subscriptions = [],
   selectedCardId,
   onSelectCard,
+  onAddPurchase,
+  onDeleteCardItem,
+  onStopSubscription,
+  onResumeSubscription,
+  onAddCategory,
 }) {
   const cards = accounts.filter((a) => a.type === 'cartao')
   // A seleção pode vir de fora (ex: link de "Faturas em aberto" em
   // Lançamentos) — sem `onSelectCard`, essa tela cuida da própria seleção.
   const [internalSelectedId, setInternalSelectedId] = useState(cards[0]?.id ?? '')
+  const [showPurchaseForm, setShowPurchaseForm] = useState(false)
   const isControlled = Boolean(onSelectCard)
   const selectedId = isControlled ? selectedCardId : internalSelectedId
   const setSelectedId = isControlled ? onSelectCard : setInternalSelectedId
@@ -177,10 +269,21 @@ function CardsScreen({
     )
   }
 
+  // Sem dia de fechamento não dá pra dizer em qual fatura a compra cai — em
+  // vez de chutar (e jogar o gasto na fatura errada), a tela pede pra
+  // completar o cadastro do cartão antes de lançar.
+  const canLaunch = selectedCard.closingDay != null
+
   return (
     <div className="flex flex-col gap-4">
       {cards.length > 1 && (
-        <Select value={selectedCard.id} onChange={(e) => setSelectedId(e.target.value)}>
+        <Select
+          value={selectedCard.id}
+          onChange={(e) => {
+            setSelectedId(e.target.value)
+            setShowPurchaseForm(false)
+          }}
+        >
           {cards.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -189,14 +292,51 @@ function CardsScreen({
         </Select>
       )}
 
+      {showPurchaseForm ? (
+        <CardPurchaseForm
+          card={selectedCard}
+          categories={categories}
+          onAddCategory={onAddCategory}
+          onSave={(data) => {
+            onAddPurchase(selectedCard, data)
+            setShowPurchaseForm(false)
+          }}
+          onCancel={() => setShowPurchaseForm(false)}
+        />
+      ) : canLaunch ? (
+        <PrimaryButton onClick={() => setShowPurchaseForm(true)}>
+          <PlusIcon /> Nova compra no cartão
+        </PrimaryButton>
+      ) : (
+        <p className="rounded-2xl bg-rose/10 px-4 py-3 text-sm text-ink">
+          Informe o dia de fechamento desse cartão na aba <strong>Contas</strong> pra poder lançar
+          compras aqui.
+        </p>
+      )}
+
       <CardInfoSummary
         card={selectedCard}
         transactions={transactions}
         bills={bills}
         billPayments={billPayments}
+        subscriptions={subscriptions}
       />
 
-      <CardInvoiceView card={selectedCard} transactions={transactions} categories={categories} />
+      <SubscriptionsCard
+        card={selectedCard}
+        subscriptions={subscriptions}
+        categories={categories}
+        onStop={onStopSubscription}
+        onResume={onResumeSubscription}
+      />
+
+      <CardInvoiceView
+        card={selectedCard}
+        transactions={transactions}
+        categories={categories}
+        subscriptions={subscriptions}
+        onDeleteItem={onDeleteCardItem}
+      />
     </div>
   )
 }

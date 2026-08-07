@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Field, TextInput, Select, PrimaryButton, GhostButton, Card } from './ui'
+import CategorySelect from './CategorySelect'
 import { CloseIcon } from './icons'
 import { todayIso, monthLabel } from '../lib/constants'
 import { currentMonthKey } from '../lib/bills'
@@ -47,7 +48,7 @@ function formFrom(bill, accounts) {
   }
 }
 
-function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
+function BillForm({ accounts, categories = [], initial, onSave, onCancel, onAddCategory }) {
   const payableAccounts = accounts.filter((a) => a.type !== 'cartao')
   const [form, setForm] = useState(() => formFrom(initial, payableAccounts))
 
@@ -136,7 +137,9 @@ function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
             onChange={(e) => setForm({ ...form, variableAmount: e.target.checked })}
             className="h-4 w-4 rounded border-ink/20 accent-coral"
           />
-          Valor muda todo mês (ex: água, energia)
+          {form.type === 'entrada'
+            ? 'Só vou saber o valor na hora de receber (ex: vendas do brechó)'
+            : 'Valor muda todo mês (ex: água, energia)'}
         </label>
 
         <Field label={form.variableAmount ? 'Valor estimado (opcional)' : 'Valor'}>
@@ -149,6 +152,12 @@ function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
             placeholder="0,00"
             required={!form.variableAmount}
           />
+          {form.variableAmount && (
+            <span className="text-xs text-gray">
+              Pode deixar em branco — o app pergunta o valor
+              {form.type === 'entrada' ? ' recebido' : ' pago'} na hora de dar baixa.
+            </span>
+          )}
         </Field>
 
         <label className="flex items-center gap-2 text-sm font-medium text-gray">
@@ -234,21 +243,12 @@ function BillForm({ accounts, categories = [], initial, onSave, onCancel }) {
           </Select>
         </Field>
 
-        {categories.length > 0 && (
-          <Field label="Categoria (opcional)">
-            <Select
-              value={form.category}
-              onChange={(e) => setForm({ ...form, category: e.target.value })}
-            >
-              <option value="">Sem categoria</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.emoji} {c.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        )}
+        <CategorySelect
+          categories={categories}
+          value={form.category}
+          onChange={(category) => setForm({ ...form, category })}
+          onAddCategory={onAddCategory}
+        />
 
         <div className="flex gap-3 pt-1">
           <PrimaryButton type="submit" className="flex-1">
